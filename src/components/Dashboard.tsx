@@ -1,81 +1,102 @@
-import { Image, Users, Package, TrendingUp } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import React from 'react';
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, Bar, Legend,
+  PieChart, Pie, Cell 
+} from 'recharts';
 
-export default function Dashboard() {
-  const [stats, setStats] = useState({
-    totalCromos: 0,
-    usuarios: 156,
-    inventarios: 89,
-    crecimiento: 23,
-  });
+// Datos de ejemplo para las gráficas
+const dataIngresos = [
+  { name: 'Lun', total: 400 }, { name: 'Mar', total: 700 },
+  { name: 'Mie', total: 500 }, { name: 'Jue', total: 900 },
+  { name: 'Vie', total: 1200 }, { name: 'Sab', total: 1500 },
+  { name: 'Dom', total: 1100 },
+];
 
-  useEffect(() => {
-    loadStats();
-  }, []);
+const dataAlbumes = [
+  { name: 'Llenos', value: 85, color: '#FFD700' },
+  { name: 'Al 50%', value: 320, color: '#FF8042' },
+  { name: 'Vacíos', value: 150, color: '#999' },
+];
 
-  const loadStats = async () => {
-    const { count } = await supabase
-      .from('cromos_info')
-      .select('*', { count: 'exact', head: true });
+const dataUsuarios = [
+  { name: 'Sem 1', reg: 100, act: 80 },
+  { name: 'Sem 2', reg: 150, act: 120 },
+  { name: 'Sem 3', reg: 200, act: 160 },
+];
 
-    setStats(prev => ({ ...prev, totalCromos: count || 0 }));
-  };
-
-  const statCards = [
-    {
-      title: 'Total de Cromos',
-      value: stats.totalCromos,
-      icon: Image,
-      color: 'text-yellow-400',
-      bgColor: 'bg-yellow-400/10',
-    },
-    {
-      title: 'Usuarios Activos',
-      value: stats.usuarios,
-      icon: Users,
-      color: 'text-blue-400',
-      bgColor: 'bg-blue-400/10',
-    },
-    {
-      title: 'Inventarios',
-      value: stats.inventarios,
-      icon: Package,
-      color: 'text-green-400',
-      bgColor: 'bg-green-400/10',
-    },
-    {
-      title: 'Crecimiento',
-      value: `${stats.crecimiento}%`,
-      icon: TrendingUp,
-      color: 'text-purple-400',
-      bgColor: 'bg-purple-400/10',
-    },
-  ];
-
+const Dashboard: React.FC = () => {
   return (
-    <div>
-      <h2 className="text-3xl font-bold text-white mb-8">Dashboard Principal</h2>
+    <div style={{ padding: '20px', backgroundColor: '#f4f6f8', minHeight: '100vh' }}>
+      <h2 style={{ marginBottom: '20px' }}>📊 Dashboard General</h2>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <div
-              key={stat.title}
-              className="bg-gray-800 rounded-xl p-6 border border-gray-700 hover:border-yellow-400/50 transition-all"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className={`p-3 rounded-lg ${stat.bgColor}`}>
-                  <Icon className={stat.color} size={24} />
-                </div>
-              </div>
-              <h3 className="text-gray-400 text-sm mb-2">{stat.title}</h3>
-              <p className="text-3xl font-bold text-white">{stat.value}</p>
-            </div>
-          );
-        })}
+      {/* --- FILA DE CAJAS (KPIs) --- */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
+        {[
+          { label: 'Usuarios Reg.', val: '1,250', color: '#2196F3' },
+          { label: 'Usuarios Activos', val: '430', color: '#4CAF50' },
+          { label: 'Álbumes Llenos', val: '85', color: '#FFC107' },
+          { label: 'Álbumes 50%', val: '320', color: '#FF5722' },
+          { label: 'Álbumes Vacíos', val: '150', color: '#757575' },
+          { label: 'Ingresos Hoy', val: '$1,200', color: '#00C49F' },
+        ].map((item, i) => (
+          <div key={i} style={{ background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', borderLeft: `5px solid ${item.color}` }}>
+            <p style={{ margin: 0, color: '#666', fontSize: '0.9rem' }}>{item.label}</p>
+            <h3 style={{ margin: '5px 0 0', fontSize: '1.5rem' }}>{item.val}</h3>
+          </div>
+        ))}
+      </div>
+
+      {/* --- SECCIÓN DE GRÁFICAS --- */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '25px' }}>
+        
+        {/* 1. Tendencia de Ingresos */}
+        <div style={{ background: '#fff', padding: '20px', borderRadius: '8px' }}>
+          <h4>Tendencia de Ingresos (Semanal)</h4>
+          <ResponsiveContainer width="100%" height={250}>
+            <AreaChart data={dataIngresos}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip />
+              <Area type="monotone" dataKey="total" stroke="#00C49F" fill="#00C49F" fillOpacity={0.3} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* 2. Estado de los Álbumes */}
+        <div style={{ background: '#fff', padding: '20px', borderRadius: '8px' }}>
+          <h4>Distribución de Álbumes</h4>
+          <ResponsiveContainer width="100%" height={250}>
+            <PieChart>
+              <Pie data={dataAlbumes} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                {dataAlbumes.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* 3. Comparativa Usuarios */}
+        <div style={{ background: '#fff', padding: '20px', borderRadius: '8px' }}>
+          <h4>Usuarios: Registrados vs Activos</h4>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={dataUsuarios}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="reg" name="Registrados" fill="#2196F3" />
+              <Bar dataKey="act" name="Activos" fill="#4CAF50" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
       </div>
     </div>
   );
-}
+};
+
+export default Dashboard;
