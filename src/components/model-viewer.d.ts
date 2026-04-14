@@ -1,15 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
-// 1. Declaración para que TypeScript reconozca el tag de model-viewer
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      'model-viewer': any;
-    }
-  }
-}
-
 const Cromos: React.FC = () => {
   const [cromos, setCromos] = useState<any[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -28,30 +19,25 @@ const Cromos: React.FC = () => {
   const [selectedCromo, setSelectedCromo] = useState<any>(null);
   const [showFullImage, setShowFullImage] = useState<any | null>(null);
 
-  // Modal genérico para iframe (animación, video RA, target RA / GLB)
-  const [iframeModal, setIframeModal] = useState<{ url: string; titulo: string; is3D?: boolean } | null>(null);
+  // Modal genérico para iframe (animación, video RA)
+  const [iframeModal, setIframeModal] = useState<{ url: string; titulo: string } | null>(null);
+
+  // Modal dedicado para GLB con model-viewer
+  const [glbModal, setGlbModal] = useState<{ url: string; titulo: string } | null>(null);
 
   const STORAGE_URL = "https://gmwwnjxglvzszsbasyra.supabase.co/storage/v1/object/public/cromos/";
-  const RA_STORAGE_URL = "https://gmwwnjxglvzszsbasyra.supabase.co/storage/v1/object/public/objetosra/";
-
-  // 2. Efecto para cargar el script de model-viewer
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.type = 'module';
-    script.src = 'https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js';
-    document.head.appendChild(script);
-  }, []);
+  const STORAGE_OBJETOSRA_URL = "https://gmwwnjxglvzszsbasyra.supabase.co/storage/v1/object/public/objetosra/";
 
   const GRUPOS = [
     { id: 'TODOS', nombre: 'Todos' },
-    { id: 'A', nombre: 'Grupo A', equipos: ['México','Sudáfrica','Corea del Sur','Rep. Checa'] },
+    { id: 'A', nombre: 'Grupo A', equipos: ['México','Sudáfrica', 'Corea del Sur', 'Cheqcoslovaquia'] },
     { id: 'B', nombre: 'Grupo B', equipos: ['Canadá', 'Qatar','Suiza','Bosnia'] },
-    { id: 'C', nombre: 'Grupo C', equipos: ['Brasil', 'Marruecos','Haití','Escocia'] },
-    { id: 'D', nombre: 'Grupo D', equipos: ['Estados Unidos','Paraguay','Australia','Turquía'] },
-    { id: 'E', nombre: 'Grupo E', equipos: ['Alemania','Costa de Marfil','Curazao','Ecuador'] },
-    { id: 'F', nombre: 'Grupo F', equipos: ['Países Bajos','Japón','Túnez','Suecia'] },
-    { id: 'G', nombre: 'Grupo G', equipos: ['Bélgica','Egipto','Irán','Nueva Zelanda'] },
-    { id: 'H', nombre: 'Grupo H', equipos: ['España','Cabo Verde','Arabia Saudí','Uruguay'] },
+    { id: 'C', nombre: 'Grupo C', equipos: ['Brasil', 'Marruecos', 'Haití','Escocia'] },
+    { id: 'D', nombre: 'Grupo D', equipos: ['Estados Unidos', 'Paraguay','Australia', 'Turquía'] },
+    { id: 'E', nombre: 'Grupo E', equipos: ['Alemania', 'Costa de Marfil', 'Curazao','Ecuador'] },
+    { id: 'F', nombre: 'Grupo F', equipos: ['Países Bajos', 'Japón', 'Túnez', 'Suecia'] },
+    { id: 'G', nombre: 'Grupo G', equipos: ['Bélgica','Egipto', 'Irán', 'Nueva Zelanda'] },
+    { id: 'H', nombre: 'Grupo H', equipos: ['España','Cabo Verde', 'Arabia Saudí', 'Uruguay'] },
     { id: 'I', nombre: 'Grupo I', equipos: ['Irak','Francia', 'Senegal', 'Noruega'] },
     { id: 'J', nombre: 'Grupo J', equipos: ['Argentina','Argelia', 'Austria', 'Jordania'] },
     { id: 'K', nombre: 'Grupo K', equipos: ['RD Congo','Portugal','Uzbekistán','Colombia'] },
@@ -60,7 +46,7 @@ const Cromos: React.FC = () => {
 
   const selecciones = [
     { nombre: 'Todas', flag: '🌍' }, { nombre: 'México', flag: '🇲🇽' }, { nombre: 'Sudáfrica', flag: '🇿🇦' },
-    { nombre: 'Corea del Sur', flag: '🇰🇷' }, { nombre: 'Rep. Checa', flag: '🇨🇿' }, { nombre: 'Canadá', flag: '🇨🇦' },
+    { nombre: 'Corea del Sur', flag: '🇰🇷' }, { nombre: 'Cheqcoslovaquia', flag: '🇨🇿' }, { nombre: 'Canadá', flag: '🇨🇦' },
     { nombre: 'Qatar', flag: '🇶🇦' }, { nombre: 'Suiza', flag: '🇨🇭' }, { nombre: 'Bosnia', flag: '🇧🇦' },
     { nombre: 'Brasil', flag: '🇧🇷' }, { nombre: 'Marruecos', flag: '🇲🇦' }, { nombre: 'Haití', flag: '🇭🇹' },
     { nombre: 'Escocia', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿' }, { nombre: 'Estados Unidos', flag: '🇺🇸' }, { nombre: 'Paraguay', flag: '🇵🇾' },
@@ -82,6 +68,20 @@ const Cromos: React.FC = () => {
     ? selecciones
     : selecciones.filter(s => GRUPOS.find(g => g.id === activeGrupo)?.equipos?.includes(s.nombre) || s.nombre === 'Todas');
 
+  // Construye la URL pública del GLB desde el bucket objetosra
+  const buildGlbUrl = (value: string): string => {
+    if (!value) return '';
+    // Si ya es una URL completa, la usa directamente
+    if (value.startsWith('http')) return value;
+    // Si es solo el nombre del archivo, construye la URL del bucket
+    return `${STORAGE_OBJETOSRA_URL}${value}`;
+  };
+
+  const isGlb = (value: string): boolean => {
+    if (!value) return false;
+    return value.toLowerCase().endsWith('.glb');
+  };
+
   const toEmbedUrl = (url: string): string => {
     if (!url) return '';
     const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
@@ -93,14 +93,12 @@ const Cromos: React.FC = () => {
     return url;
   };
 
-  // 3. Helper Ajustado (CORRECCIÓN DE URL)
   const abrirEnModal = (url: string, titulo: string) => {
-    const esGLB = url.toLowerCase().endsWith('.glb');
-    // Si ya empieza con http, no le sumamos el RA_STORAGE_URL
-    const finalUrl = esGLB 
-      ? (url.startsWith('http') ? url : `${RA_STORAGE_URL}${url}`) 
-      : toEmbedUrl(url);
-    setIframeModal({ url: finalUrl, titulo, is3D: esGLB });
+    setIframeModal({ url: toEmbedUrl(url), titulo });
+  };
+
+  const abrirGlbModal = (value: string, titulo: string) => {
+    setGlbModal({ url: buildGlbUrl(value), titulo });
   };
 
   async function fetchStats() {
@@ -142,20 +140,16 @@ const Cromos: React.FC = () => {
     const from = currentPage * ITEMS_PER_PAGE;
     const to = from + ITEMS_PER_PAGE - 1;
     let query = supabase.from('cromos_info').select('*', { count: 'exact' }).order('id', { ascending: true }).range(from, to);
-    
-    if (filterSeleccion !== 'Todas') { 
-      query = query.eq('seleccion', filterSeleccion); 
-    } else if (activeGrupo !== 'TODOS') {
+    if (filterSeleccion !== 'Todas') { query = query.eq('seleccion', filterSeleccion); }
+    else if (activeGrupo !== 'TODOS') {
       const equiposDelGrupo = GRUPOS.find(g => g.id === activeGrupo)?.equipos || [];
       query = query.in('seleccion', equiposDelGrupo);
     }
-
     if (search) {
       const isNumber = /^\d+$/.test(search);
       if (isNumber) { query = query.eq('id', parseInt(search)); }
       else { query = query.ilike('nombre_cromo', `%${search}%`); }
     }
-
     const { data, count, error } = await query;
     if (!error) { setCromos(data || []); setTotalCount(count || 0); }
     setLoading(false);
@@ -414,12 +408,23 @@ const Cromos: React.FC = () => {
                   <span>▶</span> {showFullImage.url_video_ra ? 'Ver Video RA' : 'Sin Video RA'}
                 </button>
 
+                {/* BOTÓN GLB — detecta automáticamente si es .glb y usa model-viewer */}
                 <button
                   disabled={!showFullImage.url_target_ra}
-                  onClick={() => showFullImage.url_target_ra && abrirEnModal(showFullImage.url_target_ra, '🎯 Modelo 3D RA')}
+                  onClick={() => {
+                    if (!showFullImage.url_target_ra) return;
+                    if (isGlb(showFullImage.url_target_ra)) {
+                      abrirGlbModal(showFullImage.url_target_ra, '🧊 Modelo 3D');
+                    } else {
+                      abrirEnModal(showFullImage.url_target_ra, '🎯 Modelo 3D RA');
+                    }
+                  }}
                   style={btnMedia('linear-gradient(135deg, #0891b2, #164e63)', !showFullImage.url_target_ra)}
                 >
-                  <span>🎯</span> {showFullImage.url_target_ra ? 'Ver Modelo 3D' : 'Sin Modelo 3D'}
+                  <span>{isGlb(showFullImage.url_target_ra) ? '🧊' : '🎯'}</span>
+                  {showFullImage.url_target_ra
+                    ? (isGlb(showFullImage.url_target_ra) ? 'Ver Modelo 3D (GLB)' : 'Ver Modelo 3D RA')
+                    : 'Sin Modelo 3D'}
                 </button>
               </div>
 
@@ -429,7 +434,7 @@ const Cromos: React.FC = () => {
         </div>
       )}
 
-      {/* --- 4. MODAL IFRAME UNIVERSAL (CORREGIDO PARA MODEL-VIEWER) --- */}
+      {/* --- MODAL IFRAME UNIVERSAL (animación, video RA, targets no-GLB) --- */}
       {iframeModal && (
         <div
           style={{
@@ -448,43 +453,91 @@ const Cromos: React.FC = () => {
                 CERRAR ✕
               </button>
             </div>
-
-            <div style={{ position: 'relative', paddingBottom: '75%', height: 0, borderRadius: '14px', overflow: 'hidden', background: '#000', border: '1px solid #222' }}>
-              {iframeModal.is3D ? (
-                <model-viewer
-                  src={iframeModal.url}
-                  ar
-                  ar-modes="webxr scene-viewer quick-look"
-                  camera-controls
-                  shadow-intensity="1"
-                  auto-rotate
-                  crossorigin="anonymous"
-                  loading="eager"
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: '#111' }}
-                >
-                  <div slot="ar-button" style={{ background: '#eab308', borderRadius: '8px', padding: '10px', position: 'absolute', bottom: '20px', right: '20px', color: '#000', fontWeight: 'bold' }}>
-                    Ver en AR
-                  </div>
-                </model-viewer>
-              ) : (
-                <iframe
-                  key={iframeModal.url}
-                  src={iframeModal.url}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
-                  allow="autoplay; fullscreen; xr-spatial-tracking; ar; camera"
-                  allowFullScreen
-                  title={iframeModal.titulo}
-                />
-              )}
+            <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, borderRadius: '14px', overflow: 'hidden', background: '#000' }}>
+              <iframe
+                key={iframeModal.url}
+                src={iframeModal.url}
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+                allow="autoplay; fullscreen; xr-spatial-tracking; ar; camera"
+                allowFullScreen
+                title={iframeModal.titulo}
+              />
             </div>
           </div>
         </div>
       )}
+
+      {/* --- MODAL VISOR GLB CON MODEL-VIEWER --- */}
+      {glbModal && (
+        <div
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(0,0,0,0.97)',
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            zIndex: 5000,
+          }}
+          onClick={() => setGlbModal(null)}
+        >
+          <div style={{ position: 'relative', width: '95%', maxWidth: '900px' }} onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <span style={{ color: '#eab308', fontWeight: 'bold', fontSize: '15px' }}>{glbModal.titulo}</span>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                
+                  href={glbModal.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#eab308', fontSize: '12px', textDecoration: 'none', padding: '8px 14px', border: '1px solid #eab308', borderRadius: '8px' }}
+                >
+                  🔗 Abrir archivo
+                </a>
+                <button
+                  onClick={() => setGlbModal(null)}
+                  style={{ background: '#ef4444', color: 'white', border: 'none', padding: '8px 18px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
+                >
+                  CERRAR ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Visor model-viewer */}
+            <div style={{ borderRadius: '14px', overflow: 'hidden', background: '#111', height: '520px', border: '1px solid #333', position: 'relative' }}>
+              {/* @ts-ignore */}
+              <model-viewer
+                key={glbModal.url}
+                src={glbModal.url}
+                alt={glbModal.titulo}
+                auto-rotate
+                camera-controls
+                ar
+                ar-modes="webxr scene-viewer quick-look"
+                shadow-intensity="1"
+                exposure="1"
+                tone-mapping="commerce"
+                style={{ width: '100%', height: '100%', background: '#0a0a0a' }}
+              />
+
+              {/* Instrucciones */}
+              <div style={{
+                position: 'absolute', bottom: '15px', left: '50%', transform: 'translateX(-50%)',
+                background: 'rgba(0,0,0,0.7)', color: '#888', fontSize: '11px',
+                padding: '6px 14px', borderRadius: '20px', pointerEvents: 'none', whiteSpace: 'nowrap'
+              }}>
+                🖱️ Arrastrar para rotar · Scroll para zoom · Pinch en móvil
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
 
-// --- ESTILOS COMPLEMENTARIOS ---
+// --- ESTILOS ---
 const detailCard: React.CSSProperties = { display: 'flex', width: '95%', maxWidth: '900px', maxHeight: '85vh', background: '#0a0a0a', borderRadius: '24px', border: '1px solid #222', overflow: 'hidden', position: 'relative', boxShadow: '0 30px 60px -12px rgba(0,0,0,0.7)', flexDirection: 'row', flexWrap: 'nowrap' };
 const btnCloseAbsolute: React.CSSProperties = { position: 'absolute', top: '15px', right: '15px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: 'none', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, fontSize: '16px' };
 const detailImageSection: React.CSSProperties = { flex: '1.1', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', borderRight: '1px solid #1a1a1a' };
