@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
-// 1. Declaración para que TypeScript reconozca el tag de model-viewer
 declare global {
   namespace JSX {
     interface IntrinsicElements {
@@ -27,14 +26,18 @@ const Cromos: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedCromo, setSelectedCromo] = useState<any>(null);
   const [showFullImage, setShowFullImage] = useState<any | null>(null);
-
-  // Modal genérico para iframe (animación, video RA, target RA / GLB)
   const [iframeModal, setIframeModal] = useState<{ url: string; titulo: string; is3D?: boolean } | null>(null);
+
+  // ── NUEVOS ESTADOS PARA UPLOAD ──
+  const [uploadingAnim, setUploadingAnim] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [youtubeInput, setYoutubeInput] = useState('');
+  const [showYoutubeInput, setShowYoutubeInput] = useState(false);
 
   const STORAGE_URL = "https://gmwwnjxglvzszsbasyra.supabase.co/storage/v1/object/public/cromos/";
   const RA_STORAGE_URL = "https://gmwwnjxglvzszsbasyra.supabase.co/storage/v1/object/public/objetosra/";
+  const ANIM_STORAGE_URL = "https://gmwwnjxglvzszsbasyra.supabase.co/storage/v1/object/public/animaciones/";
 
-  // 2. Efecto para cargar el script de model-viewer
   useEffect(() => {
     const script = document.createElement('script');
     script.type = 'module';
@@ -93,14 +96,60 @@ const Cromos: React.FC = () => {
     return url;
   };
 
-  // 3. Helper Ajustado (CORRECCIÓN DE URL)
   const abrirEnModal = (url: string, titulo: string) => {
     const esGLB = url.toLowerCase().endsWith('.glb');
-    // Si ya empieza con http, no le sumamos el RA_STORAGE_URL
-    const finalUrl = esGLB 
-      ? (url.startsWith('http') ? url : `${RA_STORAGE_URL}${url}`) 
+    const finalUrl = esGLB
+      ? (url.startsWith('http') ? url : `${RA_STORAGE_URL}${url}`)
       : toEmbedUrl(url);
     setIframeModal({ url: finalUrl, titulo, is3D: esGLB });
+  };
+
+  // ── SUBIR ANIMACIÓN MP4 ──
+  const handleUploadAnimacion = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !showFullImage) return;
+    setUploadingAnim(true);
+    try {
+      const fileName = `${showFullImage.id}.mp4`;
+      const { error: storageError } = await supabase.storage
+        .from('animaciones')
+        .upload(fileName, file, { upsert: true, cacheControl: '0', contentType: 'video/mp4' });
+      if (storageError) throw storageError;
+      const publicUrl = `${ANIM_STORAGE_URL}${fileName}`;
+      const { error: dbError } = await supabase
+        .from('cromos_info')
+        .update({ url_animacion: publicUrl })
+        .eq('id', showFullImage.id);
+      if (dbError) throw dbError;
+      setShowFullImage({ ...showFullImage, url_animacion: publicUrl });
+      alert(`✅ Animación subida correctamente`);
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setUploadingAnim(false);
+      e.target.value = '';
+    }
+  };
+
+  // ── GUARDAR URL YOUTUBE ──
+  const handleGuardarYoutube = async () => {
+    if (!youtubeInput.trim() || !showFullImage) return;
+    setUploadingVideo(true);
+    try {
+      const { error } = await supabase
+        .from('cromos_info')
+        .update({ url_video_ra: youtubeInput.trim() })
+        .eq('id', showFullImage.id);
+      if (error) throw error;
+      setShowFullImage({ ...showFullImage, url_video_ra: youtubeInput.trim() });
+      setShowYoutubeInput(false);
+      setYoutubeInput('');
+      alert('✅ URL de YouTube guardada correctamente');
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setUploadingVideo(false);
+    }
   };
 
   async function fetchStats() {
@@ -142,20 +191,17 @@ const Cromos: React.FC = () => {
     const from = currentPage * ITEMS_PER_PAGE;
     const to = from + ITEMS_PER_PAGE - 1;
     let query = supabase.from('cromos_info').select('*', { count: 'exact' }).order('id', { ascending: true }).range(from, to);
-    
-    if (filterSeleccion !== 'Todas') { 
-      query = query.eq('seleccion', filterSeleccion); 
+    if (filterSeleccion !== 'Todas') {
+      query = query.eq('seleccion', filterSeleccion);
     } else if (activeGrupo !== 'TODOS') {
       const equiposDelGrupo = GRUPOS.find(g => g.id === activeGrupo)?.equipos || [];
       query = query.in('seleccion', equiposDelGrupo);
     }
-
     if (search) {
       const isNumber = /^\d+$/.test(search);
       if (isNumber) { query = query.eq('id', parseInt(search)); }
       else { query = query.ilike('nombre_cromo', `%${search}%`); }
     }
-
     const { data, count, error } = await query;
     if (!error) { setCromos(data || []); setTotalCount(count || 0); }
     setLoading(false);
@@ -165,7 +211,6 @@ const Cromos: React.FC = () => {
   useEffect(() => {
     if (currentPage !== 0) { setCurrentPage(0); } else { fetchCromos(); }
   }, [filterSeleccion, search, activeGrupo]);
-
   useEffect(() => { fetchCromos(); }, [currentPage]);
   useEffect(() => { checkStorageIntegrity(); }, []);
 
@@ -224,7 +269,7 @@ const Cromos: React.FC = () => {
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
 
   const btnMedia = (color: string, disabled: boolean): React.CSSProperties => ({
-    width: '100%', padding: '12px',
+    flex: 1, padding: '12px',
     background: disabled ? '#1e293b' : color,
     color: disabled ? '#475569' : 'white',
     border: disabled ? '1px solid #334155' : 'none',
@@ -235,10 +280,19 @@ const Cromos: React.FC = () => {
     transition: '0.15s',
   });
 
+  const btnUpload: React.CSSProperties = {
+    padding: '12px 14px',
+    background: 'rgba(255,255,255,0.08)',
+    color: 'white', border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: '12px', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  };
+
   return (
     <div style={{ color: 'white', padding: '10px' }}>
 
-      {/* --- FILTROS --- */}
+      {/* ── FILTROS ── */}
       <div style={filterBar}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', gap: '20px', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
@@ -248,7 +302,6 @@ const Cromos: React.FC = () => {
           </div>
           <input type="text" placeholder="🔍 Busca por ID o Nombre..." style={searchInput} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-
         <div style={groupRow}>
           {GRUPOS.map((g) => (
             <button key={g.id} onClick={() => { setActiveGrupo(g.id); setFilterSeleccion('Todas'); }} style={groupBtn(activeGrupo === g.id)}>
@@ -256,7 +309,6 @@ const Cromos: React.FC = () => {
             </button>
           ))}
         </div>
-
         <div style={flagsContainer}>
           {seleccionesVisibles.map((s) => {
             const faltantes = vaciosPorPais[s.nombre] || 0;
@@ -280,7 +332,7 @@ const Cromos: React.FC = () => {
         </div>
       </div>
 
-      {/* --- GRID DE CROMOS --- */}
+      {/* ── GRID DE CROMOS ── */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '100px', color: '#666' }}>Cargando datos...</div>
       ) : (
@@ -327,7 +379,6 @@ const Cromos: React.FC = () => {
               </div>
             ))}
           </div>
-
           {totalPages > 1 && (
             <div style={paginationArea}>
               <button disabled={currentPage === 0} onClick={() => setCurrentPage(p => p - 1)} style={pageNavBtn}>Anterior</button>
@@ -342,7 +393,7 @@ const Cromos: React.FC = () => {
         </>
       )}
 
-      {/* --- MODAL EDITAR CROMO --- */}
+      {/* ── MODAL EDITAR ── */}
       {isModalOpen && selectedCromo && (
         <div style={modalOverlay}>
           <div style={modalContent}>
@@ -366,7 +417,7 @@ const Cromos: React.FC = () => {
         </div>
       )}
 
-      {/* --- MODAL DETALLE CROMO --- */}
+      {/* ── MODAL DETALLE CROMO ── */}
       {showFullImage && (
         <div style={modalOverlay} onClick={() => setShowFullImage(null)}>
           <div style={detailCard} onClick={e => e.stopPropagation()}>
@@ -398,29 +449,77 @@ const Cromos: React.FC = () => {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '15px' }}>
-                <button
-                  disabled={!showFullImage.url_animacion}
-                  onClick={() => showFullImage.url_animacion && abrirEnModal(showFullImage.url_animacion, '✨ Animación')}
-                  style={btnMedia('linear-gradient(135deg, #7c3aed, #4c1d95)', !showFullImage.url_animacion)}
-                >
-                  <span>✨</span> {showFullImage.url_animacion ? 'Ver Animación' : 'Sin Animación'}
-                </button>
 
-                <button
-                  disabled={!showFullImage.url_video_ra}
-                  onClick={() => showFullImage.url_video_ra && abrirEnModal(showFullImage.url_video_ra, '▶ Video RA')}
-                  style={btnMedia('linear-gradient(135deg, #dc2626, #991b1b)', !showFullImage.url_video_ra)}
-                >
-                  <span>▶</span> {showFullImage.url_video_ra ? 'Ver Video RA' : 'Sin Video RA'}
-                </button>
+                {/* ── FILA 1: ANIMACIÓN + UPLOAD ── */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+                  <button
+                    disabled={!showFullImage.url_animacion}
+                    onClick={() => showFullImage.url_animacion && abrirEnModal(showFullImage.url_animacion, '✨ Animación')}
+                    style={btnMedia('linear-gradient(135deg, #7c3aed, #4c1d95)', !showFullImage.url_animacion)}
+                  >
+                    <span>✨</span>
+                    {uploadingAnim ? 'Subiendo...' : showFullImage.url_animacion ? 'Ver Animación' : 'Sin Animación'}
+                  </button>
 
+                  {/* BOTÓN UPLOAD ANIMACIÓN */}
+                  <label style={btnUpload} title="Subir MP4 de animación">
+                    {uploadingAnim ? (
+                      <span style={{ fontSize: '14px' }}>⏳</span>
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                      </svg>
+                    )}
+                    <input
+                      type="file"
+                      hidden
+                      accept="video/mp4"
+                      disabled={uploadingAnim}
+                      onChange={handleUploadAnimacion}
+                    />
+                  </label>
+                </div>
+
+                {/* ── FILA 2: VIDEO RA + UPLOAD URL YOUTUBE ── */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+                  <button
+                    disabled={!showFullImage.url_video_ra}
+                    onClick={() => showFullImage.url_video_ra && abrirEnModal(showFullImage.url_video_ra, '▶ Video RA')}
+                    style={btnMedia('linear-gradient(135deg, #dc2626, #991b1b)', !showFullImage.url_video_ra)}
+                  >
+                    <span>▶</span>
+                    {showFullImage.url_video_ra ? 'Ver Video (YouTube)' : 'Sin Video'}
+                  </button>
+
+                  {/* BOTÓN INGRESAR URL YOUTUBE */}
+                  <button
+                    style={btnUpload}
+                    title="Ingresar URL de YouTube"
+                    onClick={() => {
+                      setYoutubeInput(showFullImage.url_video_ra || '');
+                      setShowYoutubeInput(true);
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* ── FILA 3: MODELO 3D ── */}
                 <button
                   disabled={!showFullImage.url_target_ra}
                   onClick={() => showFullImage.url_target_ra && abrirEnModal(showFullImage.url_target_ra, '🎯 Modelo 3D RA')}
                   style={btnMedia('linear-gradient(135deg, #0891b2, #164e63)', !showFullImage.url_target_ra)}
                 >
-                  <span>🎯</span> {showFullImage.url_target_ra ? 'Ver Modelo 3D' : 'Sin Modelo 3D'}
+                  <span>🎯</span>
+                  {showFullImage.url_target_ra ? 'Ver Modelo 3D' : 'Sin Modelo 3D'}
                 </button>
+
               </div>
 
               <button onClick={() => setShowFullImage(null)} style={btnCloseDetail}>Cerrar Vista</button>
@@ -429,16 +528,61 @@ const Cromos: React.FC = () => {
         </div>
       )}
 
-      {/* --- 4. MODAL IFRAME UNIVERSAL (CORREGIDO PARA MODEL-VIEWER) --- */}
+      {/* ── MODAL INPUT URL YOUTUBE ── */}
+      {showYoutubeInput && (
+        <div style={{ ...modalOverlay, zIndex: 6000 }} onClick={() => setShowYoutubeInput(false)}>
+          <div style={{ background: '#1e293b', padding: '25px', borderRadius: '16px', border: '1px solid #334155', width: '90%', maxWidth: '420px' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ color: '#eab308', marginTop: 0, fontSize: '15px' }}>
+              🎬 URL de YouTube — Cromo #{showFullImage?.id}
+            </h3>
+            <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '12px' }}>
+              Pega la URL completa del video de YouTube
+            </p>
+            <input
+              type="text"
+              placeholder="https://www.youtube.com/watch?v=..."
+              value={youtubeInput}
+              onChange={e => setYoutubeInput(e.target.value)}
+              style={{
+                width: '100%', padding: '12px', background: '#0f172a',
+                border: '1px solid #475569', color: 'white',
+                borderRadius: '10px', fontSize: '13px',
+                boxSizing: 'border-box', marginBottom: '15px', outline: 'none'
+              }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={handleGuardarYoutube}
+                disabled={uploadingVideo || !youtubeInput.trim()}
+                style={{
+                  flex: 1, padding: '12px', background: '#dc2626',
+                  color: 'white', border: 'none', borderRadius: '10px',
+                  fontWeight: 'bold', cursor: uploadingVideo ? 'wait' : 'pointer',
+                  opacity: !youtubeInput.trim() ? 0.5 : 1
+                }}
+              >
+                {uploadingVideo ? '⏳ Guardando...' : '✅ Guardar URL'}
+              </button>
+              <button
+                onClick={() => { setShowYoutubeInput(false); setYoutubeInput(''); }}
+                style={{
+                  flex: 1, padding: '12px', background: 'transparent',
+                  color: '#94a3b8', border: '1px solid #334155',
+                  borderRadius: '10px', cursor: 'pointer'
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL IFRAME UNIVERSAL ── */}
       {iframeModal && (
         <div
-          style={{
-            position: 'fixed', inset: 0,
-            background: 'rgba(0,0,0,0.97)',
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            zIndex: 5000,
-          }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.97)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 5000 }}
           onClick={() => setIframeModal(null)}
         >
           <div style={{ position: 'relative', width: '95%', maxWidth: '900px' }} onClick={e => e.stopPropagation()}>
@@ -448,18 +592,13 @@ const Cromos: React.FC = () => {
                 CERRAR ✕
               </button>
             </div>
-
             <div style={{ position: 'relative', paddingBottom: '75%', height: 0, borderRadius: '14px', overflow: 'hidden', background: '#000', border: '1px solid #222' }}>
               {iframeModal.is3D ? (
                 <model-viewer
                   src={iframeModal.url}
-                  ar
-                  ar-modes="webxr scene-viewer quick-look"
-                  camera-controls
-                  shadow-intensity="1"
-                  auto-rotate
-                  crossorigin="anonymous"
-                  loading="eager"
+                  ar ar-modes="webxr scene-viewer quick-look"
+                  camera-controls shadow-intensity="1"
+                  auto-rotate crossorigin="anonymous" loading="eager"
                   style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: '#111' }}
                 >
                   <div slot="ar-button" style={{ background: '#eab308', borderRadius: '8px', padding: '10px', position: 'absolute', bottom: '20px', right: '20px', color: '#000', fontWeight: 'bold' }}>
@@ -480,11 +619,12 @@ const Cromos: React.FC = () => {
           </div>
         </div>
       )}
+
     </div>
   );
 };
 
-// --- ESTILOS COMPLEMENTARIOS ---
+// ── ESTILOS ──
 const detailCard: React.CSSProperties = { display: 'flex', width: '95%', maxWidth: '900px', maxHeight: '85vh', background: '#0a0a0a', borderRadius: '24px', border: '1px solid #222', overflow: 'hidden', position: 'relative', boxShadow: '0 30px 60px -12px rgba(0,0,0,0.7)', flexDirection: 'row', flexWrap: 'nowrap' };
 const btnCloseAbsolute: React.CSSProperties = { position: 'absolute', top: '15px', right: '15px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: 'none', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, fontSize: '16px' };
 const detailImageSection: React.CSSProperties = { flex: '1.1', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', borderRight: '1px solid #1a1a1a' };
