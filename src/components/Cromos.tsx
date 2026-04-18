@@ -34,6 +34,11 @@ const Cromos: React.FC = () => {
   const [youtubeInput, setYoutubeInput] = useState('');
   const [showYoutubeInput, setShowYoutubeInput] = useState(false);
 
+  // ── ESTADO PARA DESCARGA ──
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadingCardId, setDownloadingCardId] = useState<number | null>(null);
+
   const STORAGE_URL = "https://gmwwnjxglvzszsbasyra.supabase.co/storage/v1/object/public/cromos/";
   const RA_STORAGE_URL = "https://gmwwnjxglvzszsbasyra.supabase.co/storage/v1/object/public/objetosra/";
   const ANIM_STORAGE_URL = "https://gmwwnjxglvzszsbasyra.supabase.co/storage/v1/object/public/animaciones/";
@@ -149,6 +154,70 @@ const Cromos: React.FC = () => {
       alert(`Error: ${err.message}`);
     } finally {
       setUploadingVideo(false);
+    }
+  };
+
+  // ── DESCARGAR IMÁGENES DE LA PÁGINA ACTUAL ──
+  const handleDescargarPagina = async () => {
+    const cromosConImagen = cromos.filter(c => c.url_imagen);
+    if (cromosConImagen.length === 0) {
+      alert('No hay imágenes en esta página para descargar.');
+      return;
+    }
+    setDownloading(true);
+    setDownloadProgress(0);
+    let descargados = 0;
+    for (const cromo of cromosConImagen) {
+      try {
+        const url = `${STORAGE_URL}${cromo.url_imagen}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        const extension = cromo.url_imagen.split('.').pop() || 'jpg';
+        const nombreSeguro = (cromo.nombre_cromo || `cromo_${cromo.id}`).replace(/[^a-zA-Z0-9_\-áéíóúÁÉÍÓÚñÑ ]/g, '');
+        a.download = `${cromo.id}_${nombreSeguro}.${extension}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+        descargados++;
+        setDownloadProgress(Math.round((descargados / cromosConImagen.length) * 100));
+        await new Promise(res => setTimeout(res, 300));
+      } catch (err) {
+        console.error(`Error descargando cromo ${cromo.id}:`, err);
+      }
+    }
+    setDownloading(false);
+    setDownloadProgress(0);
+    alert(`✅ Descarga completada: ${descargados} de ${cromosConImagen.length} imágenes descargadas.`);
+  };
+
+  // ── DESCARGAR IMAGEN DE UN CROMO INDIVIDUAL ──
+  const handleDescargarCromo = async (cromo: any) => {
+    if (!cromo.url_imagen) return;
+    setDownloadingCardId(cromo.id);
+    try {
+      const url = `${STORAGE_URL}${cromo.url_imagen}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      const extension = cromo.url_imagen.split('.').pop() || 'jpg';
+      const nombreSeguro = (cromo.nombre_cromo || `cromo_${cromo.id}`).replace(/[^a-zA-Z0-9_\-áéíóúÁÉÍÓÚñÑ ]/g, '');
+      a.download = `${cromo.id}_${nombreSeguro}.${extension}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error(`Error descargando cromo ${cromo.id}:`, err);
+    } finally {
+      setDownloadingCardId(null);
     }
   };
 
@@ -289,6 +358,8 @@ const Cromos: React.FC = () => {
     flexShrink: 0,
   };
 
+  const cromosConImagen = cromos.filter(c => c.url_imagen);
+
   return (
     <div style={{ color: 'white', padding: '10px' }}>
 
@@ -300,7 +371,53 @@ const Cromos: React.FC = () => {
             <span style={countBadge}>{totalCount} resultados</span>
             {checkingStorage && <span style={{ fontSize: '11px', color: '#666' }}>⏳ Verificando storage...</span>}
           </div>
-          <input type="text" placeholder="🔍 Busca por ID o Nombre..." style={searchInput} value={search} onChange={(e) => setSearch(e.target.value)} />
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input type="text" placeholder="🔍 Busca por ID o Nombre..." style={searchInput} value={search} onChange={(e) => setSearch(e.target.value)} />
+            {/* ── BOTÓN DESCARGAR PÁGINA ── */}
+            <button
+              onClick={handleDescargarPagina}
+              disabled={downloading || cromosConImagen.length === 0}
+              style={{
+                padding: '12px 18px',
+                background: downloading
+                  ? '#1e293b'
+                  : cromosConImagen.length === 0
+                    ? '#1e293b'
+                    : 'linear-gradient(135deg, #16a34a, #15803d)',
+                color: (downloading || cromosConImagen.length === 0) ? '#475569' : 'white',
+                border: (downloading || cromosConImagen.length === 0) ? '1px solid #334155' : 'none',
+                borderRadius: '8px',
+                fontWeight: 'bold',
+                fontSize: '13px',
+                cursor: (downloading || cromosConImagen.length === 0) ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                whiteSpace: 'nowrap',
+                transition: '0.15s',
+                flexShrink: 0,
+              }}
+              title={`Descargar ${cromosConImagen.length} imágenes de esta página`}
+            >
+              {downloading ? (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                  {downloadProgress}%
+                </>
+              ) : (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  Descargar ({cromosConImagen.length})
+                </>
+              )}
+            </button>
+          </div>
         </div>
         <div style={groupRow}>
           {GRUPOS.map((g) => (
@@ -363,12 +480,37 @@ const Cromos: React.FC = () => {
                       </svg>
                       <input type="file" hidden accept="image/*" onChange={(e) => handleUpdateImage(e, c.id)} />
                     </label>
-                    <button style={iconBtn} onClick={() => { setSelectedCromo(c); setIsModalOpen(true); }}>
+                    <button style={iconBtn} title="Editar info" onClick={() => { setSelectedCromo(c); setIsModalOpen(true); }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                       </svg>
                     </button>
+                    {/* ── BOTÓN DESCARGA INDIVIDUAL ── */}
+                    {c.url_imagen && (
+                      <button
+                        style={{
+                          ...iconBtn,
+                          opacity: downloadingCardId === c.id ? 0.5 : 1,
+                          cursor: downloadingCardId === c.id ? 'wait' : 'pointer',
+                        }}
+                        title="Descargar imagen"
+                        disabled={downloadingCardId === c.id}
+                        onClick={() => handleDescargarCromo(c)}
+                      >
+                        {downloadingCardId === c.id ? (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2">
+                            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                          </svg>
+                        ) : (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                        )}
+                      </button>
+                    )}
                   </div>
                   <div style={idBadgeFloating}>#{c.id}</div>
                 </div>
@@ -496,7 +638,7 @@ const Cromos: React.FC = () => {
                   {/* BOTÓN INGRESAR URL YOUTUBE */}
                   <button
                     style={btnUpload}
-                    title="Ingresar URL de YouTube"
+                    title="Ingresar URL de Video YouTube"
                     onClick={() => {
                       setYoutubeInput(showFullImage.url_video_ra || '');
                       setShowYoutubeInput(true);
