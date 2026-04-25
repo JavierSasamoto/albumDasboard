@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar'; // Asegúrate de que el nombre coinc
 import Dashboard from './components/Dashboard';
 import Usuarios from './components/Usuarios';
 import Cromos from './components/Cromos';
+import Banco from './components/Banco'; 
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -82,9 +83,9 @@ export default function App() {
           {activeTab === 'dashboard' && <Dashboard />}
           {activeTab === 'usuarios' && <Usuarios />}
           {activeTab === 'gestion-cromos' && <Cromos />}
-          
+          {activeTab === 'transacciones' && <Banco/>}
           {/* Secciones en desarrollo con un diseño más atractivo */}
-          {!['dashboard', 'usuarios', 'gestion-cromos'].includes(activeTab) && (
+          {!['dashboard', 'usuarios', 'gestion-cromos','transacciones'].includes(activeTab) && (
             <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-800 rounded-2xl bg-gray-900/20">
               <div className="bg-gray-800 p-4 rounded-full mb-4">
                 <span className="text-4xl text-gray-600">🚧</span>
