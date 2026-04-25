@@ -4,7 +4,7 @@ import Sidebar from './components/Sidebar'; // Asegúrate de que el nombre coinc
 import Dashboard from './components/Dashboard';
 import Usuarios from './components/Usuarios';
 import Cromos from './components/Cromos';
-import Banco from './components/Banco'; 
+import Banco from './components/Banco';   
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
