@@ -22,8 +22,8 @@ const menuGroups = [
     items: [
       { id: 'usuarios', label: 'Usuarios', icon: Users },
       { id: 'gestion-cromos', label: 'Gestión de Cromos', icon: Image },
-      { id: 'control-descargas', label: 'Control Descargas', icon: Download },
       { id: 'control-albumes', label: 'Control Álbumes', icon: BookOpen },
+      { id: 'control-descargas', label: 'Control Economico', icon: Download },
       { id: 'transacciones', label: 'Control Transacciones', icon: CreditCard },
       { id: 'monedas', label: 'Control Monedas', icon: Coins },
       { id: 'premios', label: 'Control Premios', icon: Trophy },

@@ -5,6 +5,8 @@ import Dashboard from './components/Dashboard';
 import Usuarios from './components/Usuarios';
 import Cromos from './components/Cromos';
 import Banco from './components/Banco';   
+import Albunes from './components/Albunes';   
+import Monedas from './components/Monedas';  
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -84,8 +86,11 @@ export default function App() {
           {activeTab === 'usuarios' && <Usuarios />}
           {activeTab === 'gestion-cromos' && <Cromos />}
           {activeTab === 'transacciones' && <Banco/>}
+          {activeTab === 'control-albumes' && <Albunes/>}
+          {activeTab === 'monedas' && <Monedas/>}
+          
           {/* Secciones en desarrollo con un diseño más atractivo */}
-          {!['dashboard', 'usuarios', 'gestion-cromos','transacciones'].includes(activeTab) && (
+          {!['dashboard', 'usuarios', 'gestion-cromos','transacciones','control-albumes','monedas'].includes(activeTab) && (
             <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-800 rounded-2xl bg-gray-900/20">
               <div className="bg-gray-800 p-4 rounded-full mb-4">
                 <span className="text-4xl text-gray-600">🚧</span>
