@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { 
-  Calendar, 
-  CheckCircle2, 
-  Clock, 
+import Swal from 'sweetalert2';
+import {
+  Calendar,
+  CheckCircle2,
+  Clock,
   AlertCircle,
   ArrowRightLeft,
   Hash,
@@ -13,6 +14,7 @@ import {
   Save,
   Image as ImageIcon,
   ExternalLink,
+  Mail,
 } from 'lucide-react';
 
 interface Transaccion {
@@ -30,6 +32,13 @@ interface Transaccion {
   fecha_hora_comprobante: string;
   key_control?: number;
   verificado?: boolean;
+  perfil_id?: string;
+}
+
+interface Perfil {
+  id: string;
+  email: string;
+  monedas: number;
 }
 
 interface EditForm {
@@ -62,7 +71,6 @@ const labelStyle: React.CSSProperties = {
   display: 'block',
 };
 
-// Convierte "DD/MM/YYYY HH:mm" → "YYYY-MM-DDTHH:mm" para input datetime-local
 const toInputDatetime = (valor: string): string => {
   if (!valor) return '';
   const [fechaParte, horaParte = ''] = valor.split(' ');
@@ -70,10 +78,9 @@ const toInputDatetime = (valor: string): string => {
   if (partes.length !== 3) return '';
   const [dd, mm, yyyy] = partes;
   const hora = horaParte || '00:00';
-  return `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}T${hora}`;
+  return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}T${hora}`;
 };
 
-// Convierte "YYYY-MM-DDTHH:mm" → "DD/MM/YYYY HH:mm"
 const fromInputDatetime = (valor: string): string => {
   if (!valor) return '';
   const [fechaParte, horaParte = '00:00'] = valor.split('T');
@@ -83,17 +90,16 @@ const fromInputDatetime = (valor: string): string => {
 
 const Banco: React.FC = () => {
   const [transacciones, setTransacciones] = useState<Transaccion[]>([]);
+  const [perfiles, setPerfiles] = useState<Record<string, Perfil>>({});
   const [loading, setLoading] = useState(true);
 
-  // Filtros
   const [filtroEstado, setFiltroEstado] = useState<string>('todos');
   const [busquedaRef, setBusquedaRef] = useState('');
   const [busquedaKey, setBusquedaKey] = useState('');
-  // ── CAMBIO 2: ahora es tipo date (YYYY-MM-DD) para el input calendario
   const [busquedaFecha, setBusquedaFecha] = useState('');
 
-  // Modal de edición
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [editandoTx, setEditandoTx] = useState<Transaccion | null>(null);
   const [editForm, setEditForm] = useState<EditForm>({
     banco_origen: '',
     referencia_bancaria: '',
@@ -104,13 +110,12 @@ const Banco: React.FC = () => {
   const [guardando, setGuardando] = useState(false);
   const [imagenError, setImagenError] = useState(false);
 
-  // Modal de ticket (imagen comprobante)
   const [ticketUrl, setTicketUrl] = useState<string | null>(null);
-
-  // URL del comprobante del registro en edición (solo lectura, para preview)
   const [editComprobanteUrl, setEditComprobanteUrl] = useState<string>('');
 
-  useEffect(() => { fetchTransacciones(); }, []);
+  useEffect(() => {
+    fetchTransacciones();
+  }, []);
 
   const fetchTransacciones = async () => {
     try {
@@ -120,7 +125,23 @@ const Banco: React.FC = () => {
         .select('*')
         .order('fecha_hora_registro', { ascending: false });
       if (error) throw error;
-      setTransacciones(data || []);
+
+      const txs: Transaccion[] = data || [];
+      setTransacciones(txs);
+
+      // Obtener todos los perfil_id únicos y cargar perfiles
+      const perfilIds = [...new Set(txs.map(t => t.perfil_id).filter(Boolean))] as string[];
+      if (perfilIds.length > 0) {
+        const { data: perfilesData, error: perfilesError } = await supabase
+          .from('perfiles')
+          .select('id, email, monedas')
+          .in('id', perfilIds);
+        if (!perfilesError && perfilesData) {
+          const perfilesMap: Record<string, Perfil> = {};
+          perfilesData.forEach(p => { perfilesMap[p.id] = p; });
+          setPerfiles(perfilesMap);
+        }
+      }
     } catch (error: any) {
       console.error('Error cargando transacciones:', error.message);
     } finally {
@@ -130,6 +151,7 @@ const Banco: React.FC = () => {
 
   const abrirEdicion = (tx: Transaccion) => {
     setEditandoId(tx.id);
+    setEditandoTx(tx);
     setImagenError(false);
     setEditComprobanteUrl(tx.comprobante_url || '');
     setEditForm({
@@ -143,14 +165,29 @@ const Banco: React.FC = () => {
 
   const cerrarEdicion = () => {
     setEditandoId(null);
+    setEditandoTx(null);
     setImagenError(false);
   };
 
-  // ── CAMBIO 1: si verificado está chequeado, también se guarda estado='completado'
   const guardarEdicion = async () => {
-    if (!editandoId) return;
+    if (!editandoId || !editandoTx) return;
     setGuardando(true);
+
     try {
+      // 1. Obtener perfil actualizado para tener monedas actuales
+      const perfilId = editandoTx.perfil_id;
+      let perfilActual: Perfil | null = perfilId ? (perfiles[perfilId] || null) : null;
+
+      if (perfilId && !perfilActual) {
+        const { data } = await supabase
+          .from('perfiles')
+          .select('id, email, monedas')
+          .eq('id', perfilId)
+          .single();
+        if (data) perfilActual = data;
+      }
+
+      // 2. Guardar cambios en transacción
       const updatePayload: any = {
         banco_origen: editForm.banco_origen,
         referencia_bancaria: editForm.referencia_bancaria,
@@ -158,8 +195,6 @@ const Banco: React.FC = () => {
         fecha_hora_comprobante: editForm.fecha_hora_comprobante,
         verificado: editForm.verificado,
       };
-
-      // Si se marcó como verificado, el estado pasa a 'completado'
       if (editForm.verificado) {
         updatePayload.estado = 'completado';
       }
@@ -168,9 +203,9 @@ const Banco: React.FC = () => {
         .from('transacciones')
         .update(updatePayload)
         .eq('id', editandoId);
-
       if (error) throw error;
 
+      // 3. Actualizar estado local de transacciones
       setTransacciones(prev =>
         prev.map(t =>
           t.id === editandoId
@@ -178,10 +213,114 @@ const Banco: React.FC = () => {
             : t
         )
       );
+
       cerrarEdicion();
+
+      // 4. Mostrar Swal con info de monedas
+      if (perfilActual) {
+        const monedasActuales = perfilActual.monedas ?? 0;
+        const monedasAgregar = editandoTx.cantidad_monedas ?? 0;
+        const monedasNuevas = monedasActuales + monedasAgregar;
+
+        const result = await Swal.fire({
+          background: '#1a2233',
+          color: '#f1f5f9',
+          title: '<span style="color:#fbbf24;font-size:18px;">💰 Actualizar Monedas</span>',
+          html: `
+            <div style="text-align:left;font-family:sans-serif;font-size:13px;display:flex;flex-direction:column;gap:12px;">
+              <div style="background:#0f172a;border-radius:10px;padding:12px 16px;border:1px solid #334155;">
+                <div style="color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Usuario</div>
+                <div style="color:#818cf8;font-weight:600;display:flex;align-items:center;gap:6px;">
+                  📧 ${perfilActual.email}
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                <div style="background:#0f172a;border-radius:10px;padding:12px;border:1px solid #334155;text-align:center;">
+                  <div style="color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Actuales</div>
+                  <div style="color:#f1f5f9;font-size:20px;font-weight:800;">${monedasActuales.toLocaleString()}</div>
+                </div>
+                <div style="background:#0f172a;border-radius:10px;padding:12px;border:1px solid rgba(251,191,36,0.3);text-align:center;">
+                  <div style="color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:4px;">A agregar</div>
+                  <div style="color:#fbbf24;font-size:20px;font-weight:800;">+${monedasAgregar.toLocaleString()}</div>
+                </div>
+                <div style="background:rgba(34,197,94,0.1);border-radius:10px;padding:12px;border:1px solid rgba(34,197,94,0.3);text-align:center;">
+                  <div style="color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Total</div>
+                  <div style="color:#22c55e;font-size:20px;font-weight:800;">${monedasNuevas.toLocaleString()}</div>
+                </div>
+              </div>
+              <div style="color:#64748b;font-size:11px;text-align:center;">
+                ¿Confirmas agregar <strong style="color:#fbbf24;">${monedasAgregar.toLocaleString()} monedas</strong> al perfil?
+              </div>
+            </div>
+          `,
+          showCancelButton: true,
+          confirmButtonText: '✅ Sí, agregar monedas',
+          cancelButtonText: 'Omitir',
+          confirmButtonColor: '#fbbf24',
+          cancelButtonColor: '#334155',
+          customClass: {
+            confirmButton: 'swal-confirm-btn',
+            cancelButton: 'swal-cancel-btn',
+          },
+        });
+
+        if (result.isConfirmed) {
+          // 5. Actualizar monedas en perfil
+          const { error: perfilError } = await supabase
+            .from('perfiles')
+            .update({ monedas: monedasNuevas })
+            .eq('id', perfilActual.id);
+
+          if (perfilError) {
+            Swal.fire({
+              background: '#1a2233',
+              color: '#f1f5f9',
+              icon: 'error',
+              title: 'Error',
+              text: 'No se pudieron actualizar las monedas: ' + perfilError.message,
+              confirmButtonColor: '#ef4444',
+            });
+          } else {
+            // Actualizar estado local de perfiles
+            setPerfiles(prev => ({
+              ...prev,
+              [perfilActual!.id]: { ...perfilActual!, monedas: monedasNuevas },
+            }));
+
+            Swal.fire({
+              background: '#1a2233',
+              color: '#f1f5f9',
+              icon: 'success',
+              title: '<span style="color:#22c55e;">¡Monedas actualizadas!</span>',
+              html: `<span style="font-size:13px;color:#94a3b8;">Se agregaron <strong style="color:#fbbf24;">${monedasAgregar.toLocaleString()} monedas</strong> al usuario <strong style="color:#818cf8;">${perfilActual.email}</strong></span>`,
+              timer: 2500,
+              showConfirmButton: false,
+              confirmButtonColor: '#22c55e',
+            });
+          }
+        }
+      } else {
+        // Sin perfil asociado, solo éxito de guardado
+        Swal.fire({
+          background: '#1a2233',
+          color: '#f1f5f9',
+          icon: 'success',
+          title: '¡Guardado!',
+          text: 'Los cambios se guardaron correctamente.',
+          timer: 1800,
+          showConfirmButton: false,
+        });
+      }
     } catch (error: any) {
       console.error('Error al guardar:', error.message);
-      alert('Error al guardar: ' + error.message);
+      Swal.fire({
+        background: '#1a2233',
+        color: '#f1f5f9',
+        icon: 'error',
+        title: 'Error al guardar',
+        text: error.message,
+        confirmButtonColor: '#ef4444',
+      });
     } finally {
       setGuardando(false);
     }
@@ -203,14 +342,6 @@ const Banco: React.FC = () => {
     }
   };
 
-  const extraerNombreLimpio = (texto: string) => {
-    if (!texto) return 'Remitente Desconocido';
-    const lineas = texto.split(' - ');
-    const indiceOrigen = lineas.findIndex(l => l.toUpperCase().includes('ORIGEN'));
-    if (indiceOrigen !== -1 && lineas[indiceOrigen + 1]) return lineas[indiceOrigen + 1].trim();
-    return lineas[0] || 'Remitente Desconocido';
-  };
-
   const getStatusStyle = (estado: string) => {
     const e = (estado || '').toLowerCase().trim();
     if (e === 'completado') return { color: '#22c55e', icon: <CheckCircle2 size={16} />, bg: 'rgba(20, 83, 45, 0.4)' };
@@ -218,12 +349,6 @@ const Banco: React.FC = () => {
     return                         { color: '#ef4444', icon: <AlertCircle size={16} />,  bg: 'rgba(127, 29, 29, 0.4)' };
   };
 
-  const extraerSoloFecha = (fechaTexto: string): string => {
-    if (!fechaTexto) return '';
-    return fechaTexto.split(/[\s,]/)[0].toLowerCase();
-  };
-
-  // Formatea fecha ISO de Supabase a algo legible
   const formatearFechaRegistro = (fecha: string): string => {
     if (!fecha) return '---';
     try {
@@ -239,7 +364,6 @@ const Banco: React.FC = () => {
     }
   };
 
-  // ── CAMBIO 2: el filtro de fecha compara YYYY-MM-DD del input contra DD/MM/YYYY guardado
   const transaccionesFiltradas = transacciones.filter(tx => {
     const estadoDB       = (tx.estado || '').toLowerCase().trim();
     const coincideEstado = filtroEstado === 'todos' || estadoDB === filtroEstado;
@@ -248,10 +372,9 @@ const Banco: React.FC = () => {
     const keyDB          = String(tx.key_control || '');
     const coincideKey    = keyDB.includes(busquedaKey);
 
-    // fecha_hora_registro viene en ISO (ej: "2026-05-10T14:32:00") → tomar solo YYYY-MM-DD
     let coincideFecha = true;
     if (busquedaFecha) {
-      const fechaISO = (tx.fecha_hora_registro || '').slice(0, 10); // "YYYY-MM-DD"
+      const fechaISO = (tx.fecha_hora_registro || '').slice(0, 10);
       coincideFecha = fechaISO === busquedaFecha;
     }
 
@@ -318,7 +441,6 @@ const Banco: React.FC = () => {
           />
         </div>
 
-        {/* ── CAMBIO 2: input type="date" con calendario nativo ── */}
         <div style={{ display: 'flex', alignItems: 'center', background: '#0f172a', padding: '8px 16px', borderRadius: '50px', border: '1px solid #334155', flex: 1, minWidth: '180px' }}>
           <Calendar size={13} color="#64748b" style={{ marginRight: '7px', flexShrink: 0 }} />
           <input
@@ -345,6 +467,8 @@ const Banco: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '22px' }}>
         {transaccionesFiltradas.length > 0 ? transaccionesFiltradas.map(tx => {
           const status = getStatusStyle(tx.estado);
+          const perfil = tx.perfil_id ? perfiles[tx.perfil_id] : null;
+
           return (
             <div key={tx.id} style={{
               background: '#1a2233',
@@ -376,6 +500,23 @@ const Banco: React.FC = () => {
 
               {/* CUERPO */}
               <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+                {/* ── EMAIL DEL PERFIL ── */}
+                {perfil && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    background: 'rgba(129,140,248,0.08)', borderRadius: '8px', padding: '8px 10px',
+                    border: '1px solid rgba(129,140,248,0.2)',
+                  }}>
+                    <Mail size={15} color="#818cf8" style={{ flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '10px', color: '#64748b' }}>USUARIO</div>
+                      <div style={{ fontSize: '12px', color: '#818cf8', fontWeight: '600', wordBreak: 'break-all' }}>
+                        {perfil.email}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {tx.banco_origen && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -426,7 +567,6 @@ const Banco: React.FC = () => {
                   </div>
                 )}
 
-                {/* ── FECHA REGISTRO en card ── */}
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: '10px',
                   background: 'rgba(100,116,139,0.08)', borderRadius: '8px', padding: '8px 10px',
@@ -476,7 +616,6 @@ const Banco: React.FC = () => {
                     <Pencil size={12} /> EDITAR
                   </button>
 
-                  {/* BOTÓN TICKET → abre modal con imagen */}
                   {tx.comprobante_url && (
                     <button
                       onClick={() => setTicketUrl(tx.comprobante_url)}
@@ -507,9 +646,7 @@ const Banco: React.FC = () => {
         )}
       </div>
 
-      {/* ══════════════════════════════════════════════════
-          MODAL — VER COMPROBANTE (TICKET)
-      ══════════════════════════════════════════════════ */}
+      {/* ══ MODAL — VER COMPROBANTE ══ */}
       {ticketUrl && (
         <div
           onClick={() => setTicketUrl(null)}
@@ -532,7 +669,6 @@ const Banco: React.FC = () => {
               overflow: 'hidden',
             }}
           >
-            {/* Header */}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               padding: '16px 20px', borderBottom: '1px solid #2d3748',
@@ -543,20 +679,12 @@ const Banco: React.FC = () => {
                 <span style={{ fontWeight: '800', fontSize: '14px', color: '#818cf8' }}>COMPROBANTE</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <a
-                  href={ticketUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Abrir en nueva pestaña"
-                  style={{
-                    color: '#64748b', display: 'flex', padding: '4px',
-                    background: 'rgba(255,255,255,0.05)', borderRadius: '6px',
-                  }}
+                <a href={ticketUrl} target="_blank" rel="noreferrer" title="Abrir en nueva pestaña"
+                  style={{ color: '#64748b', display: 'flex', padding: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px' }}
                 >
                   <ExternalLink size={16} />
                 </a>
-                <button
-                  onClick={() => setTicketUrl(null)}
+                <button onClick={() => setTicketUrl(null)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', padding: '4px' }}
                 >
                   <X size={20} />
@@ -564,17 +692,11 @@ const Banco: React.FC = () => {
               </div>
             </div>
 
-            {/* Imagen */}
             <div style={{ padding: '20px', background: '#0f172a', textAlign: 'center', maxHeight: '70vh', overflowY: 'auto' }}>
               <img
                 src={ticketUrl}
                 alt="Comprobante de pago"
-                style={{
-                  maxWidth: '100%',
-                  borderRadius: '12px',
-                  border: '1px solid #334155',
-                  boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
-                }}
+                style={{ maxWidth: '100%', borderRadius: '12px', border: '1px solid #334155', boxShadow: '0 8px 30px rgba(0,0,0,0.5)' }}
                 onError={e => {
                   (e.target as HTMLImageElement).style.display = 'none';
                   const parent = (e.target as HTMLImageElement).parentElement;
@@ -593,13 +715,8 @@ const Banco: React.FC = () => {
               />
             </div>
 
-            {/* Footer */}
-            <div style={{
-              padding: '12px 20px', background: '#111827',
-              display: 'flex', justifyContent: 'flex-end',
-            }}>
-              <button
-                onClick={() => setTicketUrl(null)}
+            <div style={{ padding: '12px 20px', background: '#111827', display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setTicketUrl(null)}
                 style={{
                   background: '#1e293b', border: '1px solid #334155',
                   borderRadius: '10px', padding: '8px 20px', cursor: 'pointer',
@@ -611,9 +728,7 @@ const Banco: React.FC = () => {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          MODAL — EDITAR TRANSACCIÓN
-      ══════════════════════════════════════════════════ */}
+      {/* ══ MODAL — EDITAR TRANSACCIÓN ══ */}
       {editandoId && (
         <div style={{
           position: 'fixed', inset: 0,
@@ -641,9 +756,7 @@ const Banco: React.FC = () => {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <Pencil size={18} color="#fbbf24" />
-                <span style={{ fontWeight: '800', fontSize: '16px', color: '#fbbf24' }}>
-                  EDITAR TRANSACCIÓN
-                </span>
+                <span style={{ fontWeight: '800', fontSize: '16px', color: '#fbbf24' }}>EDITAR TRANSACCIÓN</span>
               </div>
               <button onClick={cerrarEdicion}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', padding: '4px' }}
@@ -652,18 +765,34 @@ const Banco: React.FC = () => {
               </button>
             </div>
 
-            {/* Formulario scrolleable */}
+            {/* Formulario */}
             <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto' }}>
 
-              {/* ── IMAGEN DEL COMPROBANTE (solo lectura) ── */}
+              {/* Email del perfil en modal */}
+              {editandoTx?.perfil_id && perfiles[editandoTx.perfil_id] && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '10px',
+                  background: 'rgba(129,140,248,0.08)', borderRadius: '10px', padding: '10px 14px',
+                  border: '1px solid rgba(129,140,248,0.25)',
+                }}>
+                  <Mail size={15} color="#818cf8" style={{ flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: '10px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Usuario</div>
+                    <div style={{ fontSize: '13px', color: '#818cf8', fontWeight: '600' }}>
+                      {perfiles[editandoTx.perfil_id].email}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                      💰 {perfiles[editandoTx.perfil_id].monedas?.toLocaleString() ?? 0} monedas actuales
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Comprobante */}
               <div>
                 <label style={labelStyle}>🖼️ Comprobante</label>
                 {editComprobanteUrl ? (
-                  <div style={{
-                    background: '#0f172a', borderRadius: '12px',
-                    border: '1px solid #334155', overflow: 'hidden',
-                    position: 'relative',
-                  }}>
+                  <div style={{ background: '#0f172a', borderRadius: '12px', border: '1px solid #334155', overflow: 'hidden', position: 'relative' }}>
                     {!imagenError ? (
                       <img
                         src={editComprobanteUrl}
@@ -677,11 +806,7 @@ const Banco: React.FC = () => {
                         No se pudo cargar la imagen
                       </div>
                     )}
-                    {/* Botón abrir en nueva pestaña */}
-                    <a
-                      href={editComprobanteUrl}
-                      target="_blank"
-                      rel="noreferrer"
+                    <a href={editComprobanteUrl} target="_blank" rel="noreferrer"
                       style={{
                         position: 'absolute', top: '8px', right: '8px',
                         background: 'rgba(0,0,0,0.6)', borderRadius: '6px',
@@ -704,7 +829,7 @@ const Banco: React.FC = () => {
                 )}
               </div>
 
-              {/* Banco origen */}
+              {/* Banco */}
               <div>
                 <label style={labelStyle}>🏦 Banco Origen</label>
                 <input
@@ -716,7 +841,7 @@ const Banco: React.FC = () => {
                 />
               </div>
 
-              {/* Referencia bancaria */}
+              {/* Referencia */}
               <div>
                 <label style={labelStyle}># Referencia Bancaria</label>
                 <input
@@ -728,24 +853,15 @@ const Banco: React.FC = () => {
                 />
               </div>
 
-              {/* ── FECHA COMPROBANTE con datetime-local ── */}
+              {/* Fecha comprobante */}
               <div>
                 <label style={labelStyle}>📅 Fecha/Hora Comprobante</label>
                 <input
                   type="datetime-local"
                   value={toInputDatetime(editForm.fecha_hora_comprobante)}
-                  onChange={e =>
-                    setEditForm(f => ({
-                      ...f,
-                      fecha_hora_comprobante: fromInputDatetime(e.target.value),
-                    }))
-                  }
-                  style={{
-                    ...inputStyle,
-                    colorScheme: 'dark',
-                  }}
+                  onChange={e => setEditForm(f => ({ ...f, fecha_hora_comprobante: fromInputDatetime(e.target.value) }))}
+                  style={{ ...inputStyle, colorScheme: 'dark' }}
                 />
-                {/* Muestra el valor guardado en formato legible */}
                 {editForm.fecha_hora_comprobante && (
                   <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
                     Guardado como: {editForm.fecha_hora_comprobante}
@@ -753,7 +869,7 @@ const Banco: React.FC = () => {
                 )}
               </div>
 
-              {/* Transacción (OCR) */}
+              {/* Transacción OCR */}
               <div>
                 <label style={labelStyle}>📄 Texto Transacción (OCR)</label>
                 <textarea
@@ -761,13 +877,7 @@ const Banco: React.FC = () => {
                   onChange={e => setEditForm(f => ({ ...f, transsaccion: e.target.value }))}
                   placeholder="Texto extraído del comprobante..."
                   rows={4}
-                  style={{
-                    ...inputStyle,
-                    resize: 'vertical',
-                    fontFamily: 'monospace',
-                    fontSize: '11px',
-                    lineHeight: '1.5',
-                  }}
+                  style={{ ...inputStyle, resize: 'vertical', fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.5' }}
                 />
               </div>
 
@@ -776,8 +886,7 @@ const Banco: React.FC = () => {
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 background: editForm.verificado ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)',
                 border: `1px solid ${editForm.verificado ? 'rgba(34,197,94,0.4)' : '#334155'}`,
-                borderRadius: '10px', padding: '12px 16px',
-                transition: 'all 0.2s',
+                borderRadius: '10px', padding: '12px 16px', transition: 'all 0.2s',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <CheckCircle2 size={18} color={editForm.verificado ? '#22c55e' : '#64748b'} />
@@ -787,7 +896,7 @@ const Banco: React.FC = () => {
                     </div>
                     <div style={{ fontSize: '11px', color: '#64748b' }}>
                       {editForm.verificado
-                        ? 'Al guardar, ok  el estado pasará a COMPLETADO'
+                        ? 'Al guardar, el estado pasará a COMPLETADO'
                         : 'Marca si el pago fue confirmado'}
                     </div>
                   </div>
@@ -804,8 +913,7 @@ const Banco: React.FC = () => {
             {/* Botones */}
             <div style={{
               display: 'flex', gap: '10px', padding: '16px 24px',
-              borderTop: '1px solid #2d3748', background: '#111827',
-              flexShrink: 0,
+              borderTop: '1px solid #2d3748', background: '#111827', flexShrink: 0,
             }}>
               <button onClick={cerrarEdicion}
                 style={{
@@ -825,12 +933,11 @@ const Banco: React.FC = () => {
                   cursor: guardando ? 'not-allowed' : 'pointer',
                   color: '#0f172a', fontSize: '13px', fontWeight: '800',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
-                  opacity: guardando ? 0.7 : 1,
-                  transition: 'all 0.2s',
+                  opacity: guardando ? 0.7 : 1, transition: 'all 0.2s',
                 }}
               >
                 <Save size={15} />
-                {guardando ? 'GUARDANDO...' : 'GUARDAR CAMBIOS '}
+                {guardando ? 'GUARDANDO...' : 'GUARDAR CAMBIOS'}
               </button>
             </div>
           </div>

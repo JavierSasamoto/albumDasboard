@@ -15,11 +15,14 @@ interface Transaccion {
 const Monedas: React.FC = () => {
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  
+  const [searchTerm, setSearchTerm] = useState('');
+
   const [showModal, setShowModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [transacciones, setTransacciones] = useState<Transaccion[]>([]);
   const [loadingTrans, setLoadingTrans] = useState(false);
+
+  const [regalando, setRegalando] = useState<string | null>(null);
 
   useEffect(() => { fetchDatos(); }, []);
 
@@ -29,7 +32,7 @@ const Monedas: React.FC = () => {
       const { data, error } = await supabase.from('perfiles').select('id, email, monedas');
       if (error) throw error;
       setUsuarios(data || []);
-    } catch (error: any) { console.error(error.message); } 
+    } catch (error: any) { console.error(error.message); }
     finally { setLoading(false); }
   };
 
@@ -43,7 +46,6 @@ const Monedas: React.FC = () => {
         .select('*')
         .eq('perfil_id', user.id)
         .order('fecha_hora_registro', { ascending: false });
-
       if (error) throw error;
       setTransacciones(data || []);
     } catch (error: any) {
@@ -59,20 +61,51 @@ const Monedas: React.FC = () => {
         .from('transacciones')
         .update({ verificado: !estadoActual })
         .eq('id', id);
-
       if (error) throw error;
-
-      setTransacciones(prev => 
+      setTransacciones(prev =>
         prev.map(t => t.id === id ? { ...t, verificado: !estadoActual } : t)
       );
     } catch (error: any) {
-      alert("Error de permisos o conexión: " + error.message);
+      alert("Error: " + error.message);
     }
   };
 
+  const regalar100 = async (user: any) => {
+    setRegalando(user.id);
+    try {
+      const nuevasMonedas = (user.monedas || 0) + 100;
+      const { error } = await supabase
+        .from('perfiles')
+        .update({ monedas: nuevasMonedas })
+        .eq('id', user.id);
+      if (error) throw error;
+
+      setUsuarios(prev =>
+        prev.map(u => u.id === user.id ? { ...u, monedas: nuevasMonedas } : u)
+      );
+    } catch (error: any) {
+      alert("Error al regalar monedas: " + error.message);
+    } finally {
+      setRegalando(null);
+    }
+  };
+
+  const filtered = usuarios.filter(u =>
+    u.email?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
     <div style={containerStyle}>
-      <h2 style={{ color: '#eab308', marginBottom: '20px' }}>🪙 Panel de Monedas y Caja</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2 style={{ color: '#eab308', margin: 0 }}>🪙 Panel de Monedas y Caja</h2>
+        <input
+          type="text"
+          placeholder="Buscar por email..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          style={inputSearch}
+        />
+      </div>
 
       <div style={tableWrapper}>
         <table style={tableMain}>
@@ -84,7 +117,9 @@ const Monedas: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {usuarios.map((u) => (
+            {loading ? (
+              <tr><td colSpan={3} style={{ textAlign: 'center', padding: '40px', color: '#666' }}>Cargando...</td></tr>
+            ) : filtered.map((u) => (
               <tr key={u.id} style={rowStyle}>
                 <td style={td}>
                   <strong>{u.email}</strong>
@@ -93,7 +128,18 @@ const Monedas: React.FC = () => {
                   <span style={coinText}>🪙 {u.monedas || 0}</span>
                 </td>
                 <td style={td}>
-                  <button onClick={() => fetchTransacciones(u)} style={btnHistory}>📜 Historial</button>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      onClick={() => regalar100(u)}
+                      disabled={regalando === u.id}
+                      style={btnGift}
+                    >
+                      {regalando === u.id ? '...' : '+100 🪙'}
+                    </button>
+                    <button onClick={() => fetchTransacciones(u)} style={btnHistory}>
+                      📜 Historial
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -125,29 +171,20 @@ const Monedas: React.FC = () => {
                         <td style={tdSmall}>{new Date(t.fecha_hora_registro).toLocaleDateString()}</td>
                         <td style={tdSmall}>Bs. {t.monto_dinero}</td>
                         <td style={tdSmall}>
-                          {/* ESTADO ACTUAL */}
-                          <div style={{ 
+                          <div style={{
                             color: t.estado === 'completado' ? '#4ade80' : '#f87171',
-                            fontSize: '11px',
-                            fontWeight: 'bold',
-                            marginBottom: '8px'
+                            fontSize: '11px', fontWeight: 'bold', marginBottom: '8px',
                           }}>
                             {t.estado?.toUpperCase() || 'PENDIENTE'}
                           </div>
-
-                          {/* CAMPO VERIFICADO DEBAJO DEL ESTADO */}
-                          <div style={{ 
-                            background: '#111', 
-                            padding: '8px', 
-                            borderRadius: '5px', 
+                          <div style={{
+                            background: '#111', padding: '8px', borderRadius: '5px',
                             border: `1px solid ${t.verificado ? '#166534' : '#444'}`,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px'
+                            display: 'flex', alignItems: 'center', gap: '10px',
                           }}>
-                            <input 
-                              type="checkbox" 
-                              checked={t.verificado || false} 
+                            <input
+                              type="checkbox"
+                              checked={t.verificado || false}
                               onChange={() => toggleVerificacion(t.id, t.verificado)}
                               style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                             />
@@ -170,6 +207,7 @@ const Monedas: React.FC = () => {
 };
 
 const containerStyle: React.CSSProperties = { padding: '20px', color: 'white', backgroundColor: '#000', minHeight: '100vh' };
+const inputSearch: React.CSSProperties = { background: '#111', border: '1px solid #333', color: 'white', padding: '10px 14px', borderRadius: '8px', width: '280px', fontSize: '13px', outline: 'none' };
 const tableWrapper = { background: '#0a0a0a', borderRadius: '10px', border: '1px solid #222' };
 const tableMain: React.CSSProperties = { width: '100%', borderCollapse: 'collapse' };
 const headerRow = { background: '#111', textAlign: 'left' as 'left' };
@@ -179,6 +217,7 @@ const td = { padding: '15px', borderBottom: '1px solid #1a1a1a' };
 const tdSmall = { padding: '12px', fontSize: '13px' };
 const rowStyle = { transition: 'background 0.2s' };
 const coinText = { color: '#eab308', fontWeight: 'bold', fontSize: '16px' };
+const btnGift: React.CSSProperties = { background: '#422006', color: '#eab308', border: '1px solid #eab308', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' };
 const btnHistory = { background: '#333', color: 'white', border: 'none', padding: '8px 12px', borderRadius: '5px', cursor: 'pointer' };
 const modalOverlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 };
 const modalContent: React.CSSProperties = { background: '#0a0a0a', padding: '25px', borderRadius: '15px', width: '600px', maxHeight: '85%', overflowY: 'auto', border: '1px solid #333' };

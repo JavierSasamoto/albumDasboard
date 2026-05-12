@@ -18,7 +18,7 @@ const Albunes: React.FC = () => {
   const [usuarios, setUsuarios] = useState<UsuarioAlbum[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  
+
   const [showAlbumModal, setShowAlbumModal] = useState(false);
   const [showInvModal, setShowInvModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UsuarioAlbum | null>(null);
@@ -33,10 +33,10 @@ const Albunes: React.FC = () => {
       const { data, error } = await supabase.from('perfiles').select('id, email, album_pasted');
       if (error) throw error;
       setUsuarios(data || []);
-    } catch (error: any) { 
-      console.error("Error perfiles:", error.message); 
-    } finally { 
-      setLoading(false); 
+    } catch (error: any) {
+      console.error("Error perfiles:", error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -44,21 +44,13 @@ const Albunes: React.FC = () => {
     try {
       setLoadingInv(true);
       setInventario([]);
-      
-      console.log("Buscando inventario para UUID:", userId);
 
-      // Filtramos por user_id (que es UUID en tu tabla)
       const { data, error } = await supabase
-        .from('inventario')
+        .from('inventarios')
         .select('cromo_id')
         .eq('user_id', userId);
 
-      if (error) {
-        console.error("Error Supabase Inventario:", error);
-        return;
-      }
-
-      console.log("Datos recibidos de la tabla inventario:", data);
+      if (error) { console.error("Error Supabase Inventario:", error); return; }
 
       if (data && data.length > 0) {
         const conteo = data.reduce((acc: any, curr: any) => {
@@ -69,17 +61,15 @@ const Albunes: React.FC = () => {
 
         const listaFormateada = Object.keys(conteo).map(id => ({
           cromo_nro: parseInt(id),
-          cantidad: conteo[id]
+          cantidad: conteo[id],
         })).sort((a, b) => a.cromo_nro - b.cromo_nro);
 
         setInventario(listaFormateada);
-      } else {
-        console.warn("No se encontraron filas para este user_id en la tabla inventario");
       }
-    } catch (error: any) { 
+    } catch (error: any) {
       console.error("Excepción en fetchInventario:", error);
-    } finally { 
-      setLoadingInv(false); 
+    } finally {
+      setLoadingInv(false);
     }
   };
 
@@ -95,10 +85,10 @@ const Albunes: React.FC = () => {
     <div style={containerStyle}>
       <div style={headerStyle}>
         <h2 style={{ color: '#eab308', margin: 0 }}>📊 Seguimiento de Álbumes</h2>
-        <input 
-          type="text" 
-          placeholder="Buscar coleccionista..." 
-          style={inputSearch} 
+        <input
+          type="text"
+          placeholder="Buscar coleccionista..."
+          style={inputSearch}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
       </div>
@@ -124,7 +114,7 @@ const Albunes: React.FC = () => {
                   <tr key={u.id} style={rowStyle}>
                     <td style={td}>
                       <div style={{ fontWeight: 'bold', fontSize: '13px' }}>{u.email}</div>
-                      <div style={{ fontSize: '10px', color: '#555' }}>ID: {u.id.slice(0,18)}...</div>
+                      <div style={{ fontSize: '10px', color: '#555' }}>ID: {u.id.slice(0, 18)}...</div>
                     </td>
                     <td style={td}>
                       <div style={barContainer}>
@@ -136,7 +126,7 @@ const Albunes: React.FC = () => {
                     <td style={td}><span style={badgeStyle('#ff4444')}>❌ {TOTAL_CROMOS - pegadas}</span></td>
                     <td style={td}>
                       <button onClick={() => { setSelectedUser(u); setShowAlbumModal(true); }} style={btnAlbum}>📖 Álbum</button>
-                      <button onClick={() => { setSelectedUser(u); fetchInventario(u.id); setShowInvModal(true); }} style={btnInventory}>💰 Bolsa</button>
+                      <button onClick={() => { setSelectedUser(u); fetchInventario(u.id); setShowInvModal(true); }} style={btnInventory}>🎴 Bolsa</button>
                     </td>
                   </tr>
                 );
@@ -165,31 +155,58 @@ const Albunes: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL INVENTARIO (BOLSA) */}
-      {showInvModal && (
+      {/* MODAL BOLSA DE CROMOS */}
+      {showInvModal && selectedUser && (
         <div style={modalOverlay} onClick={() => setShowInvModal(false)}>
-          <div style={modalContentSmall} onClick={e => e.stopPropagation()}>
+          <div style={modalContent} onClick={e => e.stopPropagation()}>
             <div style={modalHeader}>
-              <h3 style={{color: '#eab308'}}>💰 Inventario en Bolsa</h3>
+              <div>
+                <h3 style={{ margin: 0 }}>🎴 Bolsa de Cromos: {selectedUser.email}</h3>
+                {!loadingInv && (
+                  <p style={{ color: '#555', fontSize: '11px', margin: '4px 0 0' }}>
+                    {inventario.length} cromos distintos · {inventario.reduce((a, b) => a + b.cantidad, 0)} figuras en total
+                  </p>
+                )}
+              </div>
               <button onClick={() => setShowInvModal(false)} style={btnClose}>&times;</button>
             </div>
+
             {loadingInv ? (
-              <p style={{textAlign: 'center', color: '#eab308', padding: '20px'}}>Conectando con base de datos...</p>
+              <p style={{ textAlign: 'center', color: '#eab308', padding: '20px' }}>Cargando inventario...</p>
             ) : (
-              <div style={bagList}>
-                {inventario.length > 0 ? (
-                  inventario.map(item => (
-                    <div key={item.cromo_nro} style={bagItem}>
-                      <span style={{color: '#888'}}>#</span>{item.cromo_nro} 
-                      <strong style={{color: '#eab308', marginLeft: '5px'}}>({item.cantidad})</strong>
+              <div style={gridCromos}>
+                {Array.from({ length: TOTAL_CROMOS }, (_, index) => {
+                  const nro = index + 1;
+                  const item = inventario.find(i => i.cromo_nro === nro);
+                  const tiene = !!item;
+                  return (
+                    <div
+                      key={nro}
+                      style={{
+                        aspectRatio: '1/1',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '8px',
+                        fontWeight: 'bold',
+                        background: tiene ? '#1e3a5f' : '#7f1d1d',
+                        color: tiene ? '#93c5fd' : '#fca5a5',
+                        border: `1px solid ${tiene ? '#3b82f6' : '#ef4444'}`,
+                        borderRadius: '2px',
+                        lineHeight: 1.2,
+                      }}
+                      title={tiene ? `Cromo #${nro} — x${item!.cantidad}` : `Cromo #${nro}`}
+                    >
+                      {nro}
+                      {tiene && (
+                        <span style={{ fontSize: '6px', color: '#bfdbfe' }}>
+                          ({item!.cantidad})
+                        </span>
+                      )}
                     </div>
-                  ))
-                ) : (
-                  <div style={{textAlign:'center', width:'100%', padding: '20px'}}>
-                    <p style={{color:'#666', margin:0}}>Bolsa vacía para este ID</p>
-                    <p style={{fontSize:'10px', color:'#444'}}>Revisar RLS de tabla "inventario"</p>
-                  </div>
-                )}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -215,15 +232,32 @@ const barFill = (pct: number): React.CSSProperties => ({ width: `${pct}%`, heigh
 const barLabel: React.CSSProperties = { position: 'absolute', width: '100%', textAlign: 'center', fontSize: '10px', fontWeight: 'bold', top: '2px', color: 'white', textShadow: '1px 1px 1px black' };
 const badgeStyle = (color: string) => ({ background: `${color}15`, color: color, padding: '4px 8px', borderRadius: '4px', border: `1px solid ${color}`, fontSize: '12px', fontWeight: 'bold' as 'bold' });
 const btnAlbum = { background: '#166534', color: '#4ade80', border: '1px solid #4ade80', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px', fontSize: '12px', fontWeight: 'bold' as 'bold' };
-const btnInventory = { background: '#854d0e', color: '#eab308', border: '1px solid #eab308', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' as 'bold' };
+const btnInventory = { background: '#1e3a5f', color: '#60a5fa', border: '1px solid #3b82f6', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' as 'bold' };
 const modalOverlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 };
 const modalContent: React.CSSProperties = { background: '#0a0a0a', padding: '25px', borderRadius: '12px', width: '90%', maxHeight: '85%', overflowY: 'auto', border: '1px solid #333' };
-const modalContentSmall: React.CSSProperties = { ...modalContent, width: '450px' };
 const modalHeader = { display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid #222', paddingBottom: '10px' };
 const btnClose = { background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '24px' };
 const gridCromos: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(32px, 1fr))', gap: '3px' };
-const cromoBox = (pasted: boolean): React.CSSProperties => ({ aspectRatio: '1/1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', fontWeight: 'bold', background: pasted ? '#166534' : '#7f1d1d', color: pasted ? '#4ade80' : '#fca5a5', border: `1px solid ${pasted ? '#22c55e' : '#ef4444'}`, borderRadius: '2px' });
-const bagList: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' };
-const bagItem = { background: '#111', padding: '10px', borderRadius: '6px', textAlign: 'center' as 'center', border: '1px solid #333', fontSize: '14px' };
+
+const cromoBox = (pasted: boolean): React.CSSProperties => ({
+  aspectRatio: '1/1',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  fontSize: '8px', fontWeight: 'bold',
+  background: pasted ? '#166534' : '#7f1d1d',
+  color: pasted ? '#4ade80' : '#fca5a5',
+  border: `1px solid ${pasted ? '#22c55e' : '#ef4444'}`,
+  borderRadius: '2px',
+});
+
+const cromoBoxBolsa = (tiene: boolean): React.CSSProperties => ({
+  aspectRatio: '1/1',
+  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+  gap: '1px',
+  background: tiene ? '#1e3a5f' : '#111',
+  color: tiene ? '#93c5fd' : '#333',
+  border: `1px solid ${tiene ? '#3b82f6' : '#222'}`,
+  borderRadius: '2px',
+  cursor: 'default',
+});
 
 export default Albunes;
