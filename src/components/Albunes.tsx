@@ -5,6 +5,7 @@ interface UsuarioAlbum {
   id: string;
   email: string;
   album_pasted: boolean[];
+  monedas: number; // 💡 Añadido para controlar el saldo de canje
 }
 
 interface ItemInventario {
@@ -13,6 +14,7 @@ interface ItemInventario {
 }
 
 const TOTAL_CROMOS = 1470;
+const COSTO_LLENADO = 15000;
 
 const Albunes: React.FC = () => {
   const [usuarios, setUsuarios] = useState<UsuarioAlbum[]>([]);
@@ -24,13 +26,15 @@ const Albunes: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<UsuarioAlbum | null>(null);
   const [inventario, setInventario] = useState<ItemInventario[]>([]);
   const [loadingInv, setLoadingInv] = useState(false);
+  const [loadingAction, setLoadingAction] = useState<string | null>(null); // Bloqueo individual por usuario
 
   useEffect(() => { fetchDatos(); }, []);
 
   const fetchDatos = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase.from('perfiles').select('id, email, album_pasted');
+      // 💡 Se agrega 'monedas' al select para poder leer el saldo del usuario
+      const { data, error } = await supabase.from('perfiles').select('id, email, album_pasted, monedas');
       if (error) throw error;
       setUsuarios(data || []);
     } catch (error: any) {
@@ -73,6 +77,54 @@ const Albunes: React.FC = () => {
     }
   };
 
+  // 🔥 NUEVA FUNCIÓN: Llenar todo el álbum validando monedas
+  const manejarLlenadoCompleto = async (usuario: UsuarioAlbum) => {
+    const monedasActuales = usuario.monedas || 0;
+
+    if (monedasActuales < COSTO_LLENADO) {
+      alert(`❌ Operación denegada. El usuario necesita al menos ${COSTO_LLENADO} monedas. Saldo actual: ${monedasActuales}`);
+      return;
+    }
+
+    const confirmar = window.confirm(`¿Estás seguro de que deseas llenar el álbum completo de ${usuario.email}? Esto descontará ${COSTO_LLENADO} monedas.`);
+    if (!confirmar) return;
+
+    try {
+      setLoadingAction(usuario.id);
+
+      const nuevoAlbumCompleto = Array(TOTAL_CROMOS).fill(true);
+      const nuevoSaldoMonedas = monedasActuales - COSTO_LLENADO;
+
+      const { error } = await supabase
+        .from('perfiles')
+        .update({
+          album_pasted: nuevoAlbumCompleto,
+          monedas: nuevoSaldoMonedas
+        })
+        .eq('id', usuario.id);
+
+      if (error) throw error;
+
+      setUsuarios(prevUsuarios =>
+        prevUsuarios.map(u =>
+          u.id === usuario.id
+            ? { ...u, album_pasted: nuevoAlbumCompleto, monedas: nuevoSaldoMonedas }
+            : u
+        )
+      );
+
+      const audio = new Audio("https://gmwwnjxglvzszsbasyra.supabase.co/storage/v1/object/public/sonidos/pfiltro.mp3");
+      audio.play().catch(() => {});
+
+      alert(`🎉 ¡Álbum completado con éxito! Se descontaron ${COSTO_LLENADO} monedas.`);
+    } catch (error: any) {
+      console.error("Error al llenar el álbum:", error.message);
+      alert("Hubo un error al procesar el llenado automático.");
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
   const calcularEstadisticas = (pasted: boolean[]) => {
     const pegadas = pasted ? pasted.filter(item => item === true).length : 0;
     const porcentaje = ((pegadas / TOTAL_CROMOS) * 100).toFixed(1);
@@ -80,6 +132,18 @@ const Albunes: React.FC = () => {
   };
 
   const filtered = usuarios.filter(u => u.email?.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  // Estilo dinámico local para el botón de llenar
+  const obtenerEstiloBotonLlenar = (habilitado: boolean) => ({
+    background: habilitado ? '#ca8a04' : '#1e293b',
+    color: habilitado ? '#fff' : '#64748b',
+    border: `1px solid ${habilitado ? '#eab308' : '#334155'}`,
+    padding: '5px 10px',
+    borderRadius: '4px',
+    cursor: habilitado ? 'pointer' : 'not-allowed',
+    fontSize: '12px',
+    fontWeight: 'bold' as 'bold'
+  });
 
   return (
     <div style={containerStyle}>
@@ -98,6 +162,7 @@ const Albunes: React.FC = () => {
           <thead>
             <tr style={headerRow}>
               <th style={th}>USUARIO / EMAIL</th>
+              <th style={th}>MONEDAS</th>
               <th style={th}>PROGRESO</th>
               <th style={th}>PEGADAS</th>
               <th style={th}>RESTANTES</th>
@@ -106,15 +171,22 @@ const Albunes: React.FC = () => {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} style={emptyMsg}>Cargando...</td></tr>
+              <tr><td colSpan={6} style={emptyMsg}>Cargando...</td></tr>
             ) : (
               filtered.map(u => {
                 const { pegadas, porcentaje } = calcularEstadisticas(u.album_pasted);
+                const tieneSuficiente = (u.monedas || 0) >= COSTO_LLENADO;
+                
                 return (
                   <tr key={u.id} style={rowStyle}>
                     <td style={td}>
                       <div style={{ fontWeight: 'bold', fontSize: '13px' }}>{u.email}</div>
                       <div style={{ fontSize: '10px', color: '#555' }}>ID: {u.id.slice(0, 18)}...</div>
+                    </td>
+                    <td style={td}>
+                      <span style={{ fontWeight: 'bold', color: tieneSuficiente ? '#eab308' : '#64748b' }}>
+                        🪙 {(u.monedas || 0).toLocaleString()}
+                      </span>
                     </td>
                     <td style={td}>
                       <div style={barContainer}>
@@ -125,8 +197,21 @@ const Albunes: React.FC = () => {
                     <td style={td}><span style={badgeStyle('#4ade80')}>✅ {pegadas}</span></td>
                     <td style={td}><span style={badgeStyle('#ff4444')}>❌ {TOTAL_CROMOS - pegadas}</span></td>
                     <td style={td}>
-                      <button onClick={() => { setSelectedUser(u); setShowAlbumModal(true); }} style={btnAlbum}>📖 Álbum</button>
-                      <button onClick={() => { setSelectedUser(u); fetchInventario(u.id); setShowInvModal(true); }} style={btnInventory}>🎴 Bolsa</button>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button onClick={() => { setSelectedUser(u); setShowAlbumModal(true); }} style={btnAlbum}>📖 Álbum</button>
+                        <button onClick={() => { setSelectedUser(u); fetchInventario(u.id); setShowInvModal(true); }} style={btnInventory}>🎴 Bolsa</button>
+                        
+                        <button 
+                          onClick={() => manejarLlenadoCompleto(u)}
+                          disabled={loadingAction === u.id}
+                          style={{
+                            ...obtenerEstiloBotonLlenar(tieneSuficiente),
+                            opacity: loadingAction === u.id ? 0.6 : 1
+                          }}
+                        >
+                          {loadingAction === u.id ? '⚡...' : '🚀 Llenar'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -216,7 +301,7 @@ const Albunes: React.FC = () => {
   );
 };
 
-// --- ESTILOS ---
+// --- ESTILOS ORIGINALES ---
 const containerStyle: React.CSSProperties = { padding: '20px', color: 'white' };
 const headerStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' };
 const inputSearch = { background: '#000', border: '1px solid #333', color: 'white', padding: '10px', borderRadius: '5px', width: '300px' };

@@ -34,6 +34,9 @@ const Cromos: React.FC = () => {
   const [youtubeInput, setYoutubeInput] = useState('');
   const [showYoutubeInput, setShowYoutubeInput] = useState(false);
 
+  // ── NUEVO ESTADO PARA SUBIR MODELO 3D (.GLB) ──
+  const [uploading3D, setUploading3D] = useState(false);
+
   // ── ESTADO PARA DESCARGA ──
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -71,10 +74,10 @@ const Cromos: React.FC = () => {
     { nombre: 'Corea del Sur', flag: '🇰🇷' }, { nombre: 'Rep. Checa', flag: '🇨🇿' }, { nombre: 'Canadá', flag: '🇨🇦' },
     { nombre: 'Qatar', flag: '🇶🇦' }, { nombre: 'Suiza', flag: '🇨🇭' }, { nombre: 'Bosnia', flag: '🇧🇦' },
     { nombre: 'Brasil', flag: '🇧🇷' }, { nombre: 'Marruecos', flag: '🇲🇦' }, { nombre: 'Haití', flag: '🇭🇹' },
-    { nombre: 'Escocia', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿' }, { nombre: 'Estados Unidos', flag: '🇺🇸' }, { nombre: 'Paraguay', flag: '🇵🇾' },
+    { nombre: 'Escocia', flag: '🏴\u200D󠁢󠁳󠁣󠁴󠁿' }, { nombre: 'Estados Unidos', flag: '🇺🇸' }, { nombre: 'Paraguay', flag: '🇵🇾' },
     { nombre: 'Australia', flag: '🇦🇺' }, { nombre: 'Turquía', flag: '🇹🇷' }, { nombre: 'Alemania', flag: '🇩🇪' },
     { nombre: 'Costa de Marfil', flag: '🇨🇮' }, { nombre: 'Curazao', flag: '🇨🇼' }, { nombre: 'Ecuador', flag: '🇪🇨' },
-    { nombre: 'Países Bajos', flag: '🇳🇱' }, { nombre: 'Japón', flag: '🇯🇵' }, { nombre: 'Túnez', flag: '🇹🇳' },
+    { nombre: 'Países Bajos', flag: '🇳🇱' }, { nombre: 'Japón', flag: '🇯🇵' }, { fontsize: '14px', nombre: 'Túnez', flag: '🇹🇳' },
     { nombre: 'Suecia', flag: '🇸🇪' }, { nombre: 'Bélgica', flag: '🇧🇪' }, { nombre: 'Egipto', flag: '🇪🇬' },
     { nombre: 'Irán', flag: '🇮🇷' }, { nombre: 'Nueva Zelanda', flag: '🇳🇿' }, { nombre: 'España', flag: '🇪🇸' },
     { nombre: 'Cabo Verde', flag: '🇨🇻' }, { nombre: 'Arabia Saudí', flag: '🇸🇦' }, { nombre: 'Uruguay', flag: '🇺🇾' },
@@ -82,7 +85,7 @@ const Cromos: React.FC = () => {
     { nombre: 'Noruega', flag: '🇳🇴' }, { nombre: 'Argentina', flag: '🇦🇷' }, { nombre: 'Argelia', flag: '🇩🇿' },
     { nombre: 'Austria', flag: '🇦🇹' }, { nombre: 'Jordania', flag: '🇯🇴' }, { nombre: 'RD Congo', flag: '🇨🇩' },
     { nombre: 'Portugal', flag: '🇵🇹' }, { nombre: 'Uzbekistán', flag: '🇺🇿' }, { nombre: 'Colombia', flag: '🇨🇴' },
-    { nombre: 'Inglaterra', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' }, { nombre: 'Croacia', flag: '🇭🇷' }, { nombre: 'Ghana', flag: '🇬🇭' },
+    { nombre: 'Inglaterra', flag: '🏴\u200D󠁢󠁥󠁮󠁧󠁿' }, { nombre: 'Croacia', flag: '🇭🇷' }, { nombre: 'Ghana', flag: '🇬🇭' },
     { nombre: 'Panamá', flag: '🇵🇦' }
   ];
 
@@ -132,6 +135,44 @@ const Cromos: React.FC = () => {
       alert(`Error: ${err.message}`);
     } finally {
       setUploadingAnim(false);
+      e.target.value = '';
+    }
+  };
+
+  // ── SUBIR MODELO 3D (.GLB) ──
+  const handleUploadModelo3D = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !showFullImage) return;
+
+    if (!file.name.toLowerCase().endsWith('.glb')) {
+      alert('❌ Error: Solo se permiten archivos con extensión .glb');
+      e.target.value = '';
+      return;
+    }
+
+    setUploading3D(true);
+    try {
+      const fileName = `${showFullImage.id}.glb`;
+      const { error: storageError } = await supabase.storage
+        .from('objetosra')
+        .upload(fileName, file, { upsert: true, cacheControl: '0', contentType: 'model/gltf-binary' });
+        
+      if (storageError) throw storageError;
+      const publicUrl = `${RA_STORAGE_URL}${fileName}`;
+
+      const { error: dbError } = await supabase
+        .from('cromos_info')
+        .update({ url_target_ra: publicUrl })
+        .eq('id', showFullImage.id);
+
+      if (dbError) throw dbError;
+
+      setShowFullImage({ ...showFullImage, url_target_ra: publicUrl });
+      alert(`✅ Modelo 3D (.glb) inyectado correctamente en el cromo #${showFullImage.id}`);
+    } catch (err: any) {
+      alert(`Error crítico de subida: ${err.message}`);
+    } finally {
+      setUploading3D(false);
       e.target.value = '';
     }
   };
@@ -299,11 +340,17 @@ const Cromos: React.FC = () => {
     setUploadingId(null);
   };
 
+  // ── LÓGICA DE GUARDADO COMPLETO (INCLUYE PERSISTENCIA TOTAL DEL JSONB POLIMÓRFICO) ──
   const handleSaveInfo = async () => {
     if (!selectedCromo) return;
     const { error } = await supabase.from('cromos_info')
-      .update({ nombre_cromo: selectedCromo.nombre_cromo, rareza: selectedCromo.rareza })
+      .update({ 
+        nombre_cromo: selectedCromo.nombre_cromo, 
+        rareza: selectedCromo.rareza || 'Común',
+        informacion_tecnica: selectedCromo.informacion_tecnica 
+      })
       .eq('id', selectedCromo.id);
+      
     if (error) { alert("No se pudieron guardar los cambios."); }
     else { setIsModalOpen(false); fetchCromos(); }
   };
@@ -360,6 +407,443 @@ const Cromos: React.FC = () => {
 
   const cromosConImagen = cromos.filter(c => c.url_imagen);
 
+  // ── 💡 AUXILIAR DE RENDERIZADO DINÁMICO PARA EL FORMULARIO MULTI-CATEGORÍA ──
+  const renderFormularioPorCategoria = () => {
+    if (!selectedCromo) return null;
+    
+    // Forzamos numérico por si la DB lo devuelve como string
+    const catId = selectedCromo.categoria ? parseInt(selectedCromo.categoria) : 0;
+
+    switch (catId) {
+      case 1: // 🏟️ ESTADIOS
+        return (
+          <>
+            <h4 style={{ color: '#eab308', fontSize: '11px', textTransform: 'uppercase', margin: '10px 0', borderBottom: '1px solid #222', paddingBottom: '3px' }}>🏟️ Ficha Técnica Estadio</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>Dato Histórico</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["📜 Historia"]?.Dato || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo,
+                  informacion_tecnica: {
+                    ...selectedCromo.informacion_tecnica,
+                    "📜 Historia": { ...selectedCromo.informacion_tecnica?.["📜 Historia"], Dato: e.target.value }
+                  }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>Año Apertura</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["📜 Historia"]?.Abierto || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo,
+                  informacion_tecnica: {
+                    ...selectedCromo.informacion_tecnica,
+                    "📜 Historia": { ...selectedCromo.informacion_tecnica?.["📜 Historia"], Abierto: e.target.value }
+                  }
+                })} />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>Clima</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["🏟️ Estadio"]?.Clima || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo,
+                  informacion_tecnica: {
+                    ...selectedCromo.informacion_tecnica,
+                    "🏟️ Estadio": { ...selectedCromo.informacion_tecnica?.["🏟️ Estadio"], Clima: e.target.value }
+                  }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>Terreno de Juego</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["🏟️ Estadio"]?.Terreno || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo,
+                  informacion_tecnica: {
+                    ...selectedCromo.informacion_tecnica,
+                    "🏟️ Estadio": { ...selectedCromo.informacion_tecnica?.["🏟️ Estadio"], Terreno: e.target.value }
+                  }
+                })} />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>Capacidad</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["🏟️ Estadio"]?.Capacidad || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo,
+                  informacion_tecnica: {
+                    ...selectedCromo.informacion_tecnica,
+                    "🏟️ Estadio": { ...selectedCromo.informacion_tecnica?.["🏟️ Estadio"], Capacidad: e.target.value }
+                  }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>Estructura</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["🏟️ Estadio"]?.Estructura || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo,
+                  informacion_tecnica: {
+                    ...selectedCromo.informacion_tecnica,
+                    "🏟️ Estadio": { ...selectedCromo.informacion_tecnica?.["🏟️ Estadio"], Estructura: e.target.value }
+                  }
+                })} />
+              </div>
+            </div>
+            <h4 style={{ color: '#eab308', fontSize: '10px', textTransform: 'uppercase', margin: '5px 0' }}>📍 Detalles de Ubicación Geográfica</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+              <input style={inputS} placeholder="País" value={selectedCromo.informacion_tecnica?.["📍 Ubicación"]?.["País"] || ''} onChange={(e) => setSelectedCromo({
+                ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "📍 Ubicación": { ...selectedCromo.informacion_tecnica?.["📍 Ubicación"], "País": e.target.value } }
+              })} />
+              <input style={inputS} placeholder="Ciudad" value={selectedCromo.informacion_tecnica?.["📍 Ubicación"]?.Ciudad || ''} onChange={(e) => setSelectedCromo({
+                ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "📍 Ubicación": { ...selectedCromo.informacion_tecnica?.["📍 Ubicación"], Ciudad: e.target.value } }
+              })} />
+              <input style={inputS} placeholder="Altitud" value={selectedCromo.informacion_tecnica?.["📍 Ubicación"]?.Altitud || ''} onChange={(e) => setSelectedCromo({
+                ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "📍 Ubicación": { ...selectedCromo.informacion_tecnica?.["📍 Ubicación"], Altitud: e.target.value } }
+              })} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+              <input style={inputS} placeholder="Moneda" value={selectedCromo.informacion_tecnica?.["📍 Ubicación"]?.Moneda || ''} onChange={(e) => setSelectedCromo({
+                ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "📍 Ubicación": { ...selectedCromo.informacion_tecnica?.["📍 Ubicación"], Moneda: e.target.value } }
+              })} />
+              <input style={inputS} placeholder="Cambio" value={selectedCromo.informacion_tecnica?.["📍 Ubicación"]?.Cambio || ''} onChange={(e) => setSelectedCromo({
+                ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "📍 Ubicación": { ...selectedCromo.informacion_tecnica?.["📍 Ubicación"], Cambio: e.target.value } }
+              })} />
+              <input style={inputS} placeholder="Población" value={selectedCromo.informacion_tecnica?.["📍 Ubicación"]?.["Población"] || ''} onChange={(e) => setSelectedCromo({
+                ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "📍 Ubicación": { ...selectedCromo.informacion_tecnica?.["📍 Ubicación"], "Población": e.target.value } }
+              })} />
+            </div>
+          </>
+        );
+
+      case 2: // 🏆 GRUPOS DE LA COPA
+        return (
+          <>
+            <h4 style={{ color: '#eab308', fontSize: '11px', textTransform: 'uppercase', margin: '10px 0', borderBottom: '1px solid #222', paddingBottom: '3px' }}>🏆 Emparejamientos de Grupos</h4>
+            <label style={labelS}>Primer Grupo Analizado (Ej: GRUPO G)</label>
+            {Object.keys(selectedCromo.informacion_tecnica || {}).map((keyGrupo, idx) => (
+              <div key={idx} style={{ background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '8px', marginBottom: '10px', border: '1px solid #222' }}>
+                <span style={{ fontSize: '12px', color: '#eab308', fontWeight: 'bold' }}>{keyGrupo}</span>
+                <input style={{ ...inputS, marginTop: '5px' }} placeholder="Equipos" value={selectedCromo.informacion_tecnica?.[keyGrupo]?.Equipos || ''} onChange={(e) => {
+                  const infoTmp = { ...selectedCromo.informacion_tecnica };
+                  infoTmp[keyGrupo] = { ...infoTmp[keyGrupo], Equipos: e.target.value };
+                  setSelectedCromo({ ...selectedCromo, informacion_tecnica: infoTmp });
+                }} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <input style={inputS} placeholder="Favorito" value={selectedCromo.informacion_tecnica?.[keyGrupo]?.Favorito || ''} onChange={(e) => {
+                    const infoTmp = { ...selectedCromo.informacion_tecnica };
+                    infoTmp[keyGrupo] = { ...infoTmp[keyGrupo], Favorito: e.target.value };
+                    setSelectedCromo({ ...selectedCromo, informacion_tecnica: infoTmp });
+                  }} />
+                  <input style={inputS} placeholder="Probabilidad" value={selectedCromo.informacion_tecnica?.[keyGrupo]?.Probabilidad || ''} onChange={(e) => {
+                    const infoTmp = { ...selectedCromo.informacion_tecnica };
+                    infoTmp[keyGrupo] = { ...infoTmp[keyGrupo], Probabilidad: e.target.value };
+                    setSelectedCromo({ ...selectedCromo, informacion_tecnica: infoTmp });
+                  }} />
+                </div>
+                <input style={inputS} placeholder="Dato Curioso" value={selectedCromo.informacion_tecnica?.[keyGrupo]?.["Dato Curioso"] || ''} onChange={(e) => {
+                  const infoTmp = { ...selectedCromo.informacion_tecnica };
+                  infoTmp[keyGrupo] = { ...infoTmp[keyGrupo], "Dato Curioso": e.target.value };
+                  setSelectedCromo({ ...selectedCromo, informacion_tecnica: infoTmp });
+                }} />
+              </div>
+            ))}
+          </>
+        );
+
+      case 3: // 🏛️ FEDERACIONES / ORGANISMOS
+        return (
+          <>
+            <h4 style={{ color: '#eab308', fontSize: '11px', textTransform: 'uppercase', margin: '10px 0', borderBottom: '1px solid #222', paddingBottom: '3px' }}>🏛️ Datos de la Institución</h4>
+            <label style={labelS}>Reseña Histórica</label>
+            <input style={inputS} value={selectedCromo.informacion_tecnica?.["📜 Historia"] || ''} onChange={(e) => setSelectedCromo({
+              ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "📜 Historia": e.target.value }
+            })} />
+            <label style={labelS}>Presidente Actual</label>
+            <input style={inputS} value={selectedCromo.informacion_tecnica?.["👤 Presidente"] || ''} onChange={(e) => setSelectedCromo({
+              ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "👤 Presidente": e.target.value }
+            })} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>Siglas Fed.</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["🏛️ Institución"]?.Fed || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "🏛️ Institución": { ...selectedCromo.informacion_tecnica?.["🏛️ Institución"], Fed: e.target.value } }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>Confederación</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["🏛️ Institución"]?.Conf || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "🏛️ Institución": { ...selectedCromo.informacion_tecnica?.["🏛️ Institución"], Conf: e.target.value } }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>Fundación</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["🏛️ Institución"]?.Fund || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "🏛️ Institución": { ...selectedCromo.informacion_tecnica?.["🏛️ Institución"], Fund: e.target.value } }
+                })} />
+              </div>
+            </div>
+          </>
+        );
+
+      case 4:
+       // 🌍 PAÍSES ANFITRIONES / SOCIEDADES
+        return (
+          <>
+            <h4 style={{ color: '#eab308', fontSize: '11px', textTransform: 'uppercase', margin: '10px 0', borderBottom: '1px solid #222', paddingBottom: '3px' }}>🌍 Perfil del País Anfitrión</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>Idioma</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["👥 Sociedad"]?.Idioma || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "👥 Sociedad": { ...selectedCromo.informacion_tecnica?.["👥 Sociedad"], Idioma: e.target.value } }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>Gentilicio</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["👥 Sociedad"]?.Gentilicio || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "👥 Sociedad": { ...selectedCromo.informacion_tecnica?.["👥 Sociedad"], Gentilicio: e.target.value } }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>Población</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["👥 Sociedad"]?.Población || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "👥 Sociedad": { ...selectedCromo.informacion_tecnica?.["👥 Sociedad"], Población: e.target.value } }
+                })} />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>Código ISO</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["💰 Economía"]?.ISO || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "💰 Economía": { ...selectedCromo.informacion_tecnica?.["💰 Economía"], ISO: e.target.value } }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>Moneda</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["💰 Economía"]?.Moneda || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "💰 Economía": { ...selectedCromo.informacion_tecnica?.["💰 Economía"], Moneda: e.target.value } }
+                })} />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>Capital</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["📍 Geografía"]?.Capital || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "📍 Geografía": { ...selectedCromo.informacion_tecnica?.["📍 Geografía"], Capital: e.target.value } }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>Continente</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["📍 Geografía"]?.Continente || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "📍 Geografía": { ...selectedCromo.informacion_tecnica?.["📍 Geografía"], Continente: e.target.value } }
+                })} />
+              </div>
+            </div>
+          </>
+        );
+
+        case 5: // 💡 CATEGORÍA 5 - PERFIL SELECCIONES (ESTRUCTURA EXACTA)
+        return (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>📈 FIFA Rank</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["⚽ Perfil"]?.Rank || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo,
+                  informacion_tecnica: {
+                    ...selectedCromo.informacion_tecnica,
+                    "⚽ Perfil": { ...selectedCromo.informacion_tecnica?.["⚽ Perfil"], Rank: e.target.value }
+                  }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>📣 Apodo de la Selección</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["⚽ Perfil"]?.Apodo || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo,
+                  informacion_tecnica: {
+                    ...selectedCromo.informacion_tecnica,
+                    "⚽ Perfil": { ...selectedCromo.informacion_tecnica?.["⚽ Perfil"], Apodo: e.target.value }
+                  }
+                })} />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>🌟 Figura Actual</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["🌟 Figuras"]?.Actual || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo,
+                  informacion_tecnica: {
+                    ...selectedCromo.informacion_tecnica,
+                    "🌟 Figuras": { ...selectedCromo.informacion_tecnica?.["🌟 Figuras"], Actual: e.target.value }
+                  }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>⏳ Leyenda Histórica</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["🌟 Figuras"]?.Leyenda || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo,
+                  informacion_tecnica: {
+                    ...selectedCromo.informacion_tecnica,
+                    "🌟 Figuras": { ...selectedCromo.informacion_tecnica?.["🌟 Figuras"], Leyenda: e.target.value }
+                  }
+                })} />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>🏃‍♂️ Participaciones</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["🏆 Mundial"]?.Part || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo,
+                  informacion_tecnica: {
+                    ...selectedCromo.informacion_tecnica,
+                    "🏆 Mundial": { ...selectedCromo.informacion_tecnica?.["🏆 Mundial"], Part: e.target.value }
+                  }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>🏆 Mejor Puesto Mundial</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.["🏆 Mundial"]?.Mejor || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo,
+                  informacion_tecnica: {
+                    ...selectedCromo.informacion_tecnica,
+                    "🏆 Mundial": { ...selectedCromo.informacion_tecnica?.["🏆 Mundial"], Mejor: e.target.value }
+                  }
+                })} />
+              </div>
+            </div>
+          </>
+        );
+      
+        case 6: // 🏃‍♂️ JUGADORES (FICHA TÉCNICA ULTRA DETALLADA)
+        return (
+          <>
+            <h4 style={{ color: '#eab308', fontSize: '11px', textTransform: 'uppercase', margin: '10px 0', borderBottom: '1px solid #222', paddingBottom: '3px' }}>🏃‍♂️ Ficha del Jugador</h4>
+            
+            {/* LÍNEA 1: POSICIÓN Y VALOR */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>Posición del Jugador</label>
+                <input style={inputS} placeholder="Ej: Defensa" value={selectedCromo.informacion_tecnica?.Pos || ''} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, Pos: e.target.value } })} />
+              </div>
+              <div>
+                <label style={labelS}>Valor de Mercado</label>
+                <input style={inputS} placeholder="Ej: €10M" value={selectedCromo.informacion_tecnica?.Valor || ''} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, Valor: e.target.value } })} />
+              </div>
+            </div>
+
+            {/* LÍNEA 2: DORSAL, EDAD Y PIE HÁBIL */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>👕 Número</label>
+                <input style={inputS} type="number" value={selectedCromo.informacion_tecnica?.["👕"] || 0} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "👕": parseInt(e.target.value) || 0 } })} />
+              </div>
+              <div>
+                <label style={labelS}>Edad</label>
+                <input style={inputS} type="number" value={selectedCromo.informacion_tecnica?.Fisico?.Edad || 0} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, Fisico: { ...selectedCromo.informacion_tecnica.Fisico, Edad: parseInt(e.target.value) || 0 } } })} />
+              </div>
+              <div>
+                <label style={labelS}>Pie Hábil</label>
+                <input style={inputS} placeholder="Ej: Izquierdo" value={selectedCromo.informacion_tecnica?.Fisico?.Pie || ''} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, Fisico: { ...selectedCromo.informacion_tecnica.Fisico, Pie: e.target.value } } })} />
+              </div>
+            </div>
+
+            {/* LÍNEA 3: BIO, APODO Y TALLA/PESO */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>Bio (Lugar, Año)</label>
+                <input style={inputS} placeholder="Ej: Navojoa, 1998" value={selectedCromo.informacion_tecnica?.Fisico?.Bio || ''} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, Fisico: { ...selectedCromo.informacion_tecnica.Fisico, Bio: e.target.value } } })} />
+              </div>
+              <div>
+                <label style={labelS}>Apodo del Jugador</label>
+                <input style={inputS} placeholder="Ej: Johan" value={selectedCromo.informacion_tecnica?.Fisico?.Apodo || ''} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, Fisico: { ...selectedCromo.informacion_tecnica.Fisico, Apodo: e.target.value } } })} />
+              </div>
+              <div>
+                <label style={labelS}>Talla (Mts / Kgs)</label>
+                <input style={inputS} placeholder="Ej: 1.84m/78kg" value={selectedCromo.informacion_tecnica?.Fisico?.Talla || ''} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, Fisico: { ...selectedCromo.informacion_tecnica.Fisico, Talla: e.target.value } } })} />
+              </div>
+            </div>
+
+            {/* LÍNEA 4: ESTADÍSTICAS DE SELECCIÓN */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>Partidos Jugados (PJ)</label>
+                <input style={inputS} type="number" value={selectedCromo.informacion_tecnica?.Seleccion?.PJ || 0} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, Seleccion: { ...selectedCromo.informacion_tecnica.Seleccion, PJ: parseInt(e.target.value) || 0 } } })} />
+              </div>
+              <div>
+                <label style={labelS}>Minutos Jugados</label>
+                <input style={inputS} type="number" value={selectedCromo.informacion_tecnica?.Seleccion?.Min || 0} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, Seleccion: { ...selectedCromo.informacion_tecnica.Seleccion, Min: parseInt(e.target.value) || 0 } } })} />
+              </div>
+              <div>
+                <label style={labelS}>Fecha Debut Selección</label>
+                <input style={inputS} placeholder="Ej: 02/10/2019" value={selectedCromo.informacion_tecnica?.Seleccion?.Debut || ''} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, Seleccion: { ...selectedCromo.informacion_tecnica.Seleccion, Debut: e.target.value } } })} />
+              </div>
+            </div>
+
+            {/* LÍNEA 5: CLUBES ACTUALES Y PASADOS */}
+            <div>
+              <label style={labelS}>Historial de Clubes</label>
+              <input style={inputS} placeholder="Ej: Pumas, Genoa" value={selectedCromo.informacion_tecnica?.Clubes || ''} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, Clubes: e.target.value } })} />
+            </div>
+
+            {/* LÍNEA 6: NOTAS Y DATOS CURIOSOS DEL JUGADOR (Agregado solicitado) */}
+            <div>
+              <label style={labelS}>Notas / Datos Curiosos</label>
+              <input style={inputS} placeholder="Ej: Consolidado en Serie A italiana." value={selectedCromo.informacion_tecnica?.Nota || ''} onChange={(e) => setSelectedCromo({ ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, Nota: e.target.value } })} />
+            </div>
+          </>
+        );
+
+      case 7: // 👔 ENTRENADORES / CUERPO TÉCNICO
+        return (
+          <>
+            <h4 style={{ color: '#eab308', fontSize: '11px', textTransform: 'uppercase', margin: '10px 0', borderBottom: '1px solid #222', paddingBottom: '3px' }}>👔 Estrategia del Director Técnico</h4>
+            <label style={labelS}>Frase Célebre o Lema</label>
+            <input style={inputS} value={selectedCromo.informacion_tecnica?.frase || ''} onChange={(e) => setSelectedCromo({
+              ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, frase: e.target.value }
+            })} />
+            <label style={labelS}>Palmarés / Logros Obtenidos</label>
+            <input style={inputS} value={selectedCromo.informacion_tecnica?.logros || ''} onChange={(e) => setSelectedCromo({
+              ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, logros: e.target.value }
+            })} />
+            <label style={labelS}>Tendencia Táctica</label>
+            <input style={inputS} value={selectedCromo.informacion_tecnica?.tendencia || ''} onChange={(e) => setSelectedCromo({
+              ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, tendencia: e.target.value }
+            })} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={labelS}>Edad DT</label>
+                <input type="number" style={inputS} value={selectedCromo.informacion_tecnica?.nacimiento?.edad || 0} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, nacimiento: { ...selectedCromo.informacion_tecnica?.nacimiento, edad: parseInt(e.target.value) || 0 } }
+                })} />
+              </div>
+              <div>
+                <label style={labelS}>Fecha Nacimiento</label>
+                <input style={inputS} value={selectedCromo.informacion_tecnica?.nacimiento?.fecha || ''} onChange={(e) => setSelectedCromo({
+                  ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, nacimiento: { ...selectedCromo.informacion_tecnica?.nacimiento, fecha: e.target.value } }
+                })} />
+              </div>
+            </div>
+            <label style={labelS}>Lugar de Nacimiento</label>
+            <input style={inputS} value={selectedCromo.informacion_tecnica?.nacimiento?.lugar || ''} onChange={(e) => setSelectedCromo({
+              ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, nacimiento: { ...selectedCromo.informacion_tecnica?.nacimiento, lugar: e.target.value } }
+            })} />
+          </>
+        );
+
+      default: // 🏆 CASO GENERAL (Cromo Trofeo Principal, etc.)
+        return (
+          <>
+            <h4 style={{ color: '#eab308', fontSize: '11px', textTransform: 'uppercase', margin: '10px 0', borderBottom: '1px solid #222', paddingBottom: '3px' }}>📃 Reseña General Histórica</h4>
+            <label style={labelS}>Historia / Contexto</label>
+            <textarea style={{ ...inputS, height: '80px', resize: 'none' }} value={selectedCromo.informacion_tecnica?.["📃historia"] || ''} onChange={(e) => setSelectedCromo({
+              ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "📃historia": e.target.value }
+            })} />
+            <label style={labelS}>Descripción Física</label>
+            <textarea style={{ ...inputS, height: '80px', resize: 'none' }} value={selectedCromo.informacion_tecnica?.["🗒️descripcion"] || ''} onChange={(e) => setSelectedCromo({
+              ...selectedCromo, informacion_tecnica: { ...selectedCromo.informacion_tecnica, "🗒️descripcion": e.target.value }
+            })} />
+          </>
+        );
+    }
+  };
+
   return (
     <div style={{ color: 'white', padding: '10px' }}>
 
@@ -379,11 +863,7 @@ const Cromos: React.FC = () => {
               disabled={downloading || cromosConImagen.length === 0}
               style={{
                 padding: '12px 18px',
-                background: downloading
-                  ? '#1e293b'
-                  : cromosConImagen.length === 0
-                    ? '#1e293b'
-                    : 'linear-gradient(135deg, #16a34a, #15803d)',
+                background: downloading ? '#1e293b' : cromosConImagen.length === 0 ? '#1e293b' : 'linear-gradient(135deg, #16a34a, #15803d)',
                 color: (downloading || cromosConImagen.length === 0) ? '#475569' : 'white',
                 border: (downloading || cromosConImagen.length === 0) ? '1px solid #334155' : 'none',
                 borderRadius: '8px',
@@ -480,7 +960,28 @@ const Cromos: React.FC = () => {
                       </svg>
                       <input type="file" hidden accept="image/*" onChange={(e) => handleUpdateImage(e, c.id)} />
                     </label>
-                    <button style={iconBtn} title="Editar info" onClick={() => { setSelectedCromo(c); setIsModalOpen(true); }}>
+                    <button 
+                      style={iconBtn} 
+                      title="Editar info" 
+                      onClick={() => { 
+                        // 💡 CARGA POLIMÓRFICA SEGURA: Mantiene el JSON con llaves base limpias según la categoría asignada
+                        const catId = c.categoria ? parseInt(c.categoria) : 0;
+                        let jsonBase = c.informacion_tecnica;
+                        
+                        if (!jsonBase) {
+                          if (catId === 1) jsonBase = { "📜 Historia": { Dato: '', Abierto: '' }, "🏟️ Estadio": { Clima: '', Terreno: '', Capacidad: '', Estructura: '' }, "📍 Ubicación": { País: '', Cambio: '', Ciudad: '', Moneda: '', Altitud: '', Población: '' } };
+                          else if (catId === 2) jsonBase = { "🏆 GRUPO G": { Equipos: '', Favorito: '', "Dato Curioso": '', Probabilidad: '' }, "🏆 GRUPO H": { Equipos: '', Favorito: '', "Dato Curioso": '', Probabilidad: '' } };
+                          else if (catId === 3) jsonBase = { "📜 Historia": '', "👤 Presidente": '', "🏛️ Institución": { Fed: '', Conf: '', Fund: '' } };
+                          else if (catId === 4 || catId === 5) jsonBase = { "👥 Sociedad": { Idioma: '', Gentilicio: '', Población: '' }, "💰 Economía": { ISO: '', Moneda: '' }, "📍 Geografía": { Capital: '', Continente: '' } };
+                          else if (catId === 6) jsonBase = { Pos: '', Nota: '', "👕": 0, Valor: '', Clubes: '', Fisico: { Bio: '', Pie: '', Edad: 0, Apodo: '', Talla: '' }, Seleccion: { PJ: 0, Min: 0, Debut: '' } };
+                          else if (catId === 7) jsonBase = { frase: '', logros: '', tendencia: '', nacimiento: { edad: 0, fecha: '', lugar: '' } };
+                          else jsonBase = { "📃historia": '', "🗒️descripcion": '' };
+                        }
+
+                        setSelectedCromo({ ...c, informacion_tecnica: jsonBase }); 
+                        setIsModalOpen(true); 
+                      }}
+                    >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
@@ -535,14 +1036,19 @@ const Cromos: React.FC = () => {
         </>
       )}
 
-      {/* ── MODAL EDITAR ── */}
+      {/* ── MODAL EDITAR DINÁMICO POLIMÓRFICO ── */}
       {isModalOpen && selectedCromo && (
         <div style={modalOverlay}>
           <div style={modalContent}>
-            <h3 style={{ color: '#eab308', marginTop: 0 }}>Editar Cromo #{selectedCromo.id}</h3>
-            <label style={labelS}>Nombre del Personaje</label>
+            <h3 style={{ color: '#eab308', marginTop: 0, marginBottom: '15px', borderBottom: '1px solid #333', paddingBottom: '5px' }}>
+              Editar Cromo Global #{selectedCromo.id}
+            </h3>
+            
+            {/* INPUTS FIJOS BASE */}
+            <label style={labelS}>Nombre del Personaje / Sección</label>
             <input style={inputS} value={selectedCromo.nombre_cromo || ''} onChange={(e) => setSelectedCromo({ ...selectedCromo, nombre_cromo: e.target.value })} />
-            <label style={labelS}>Rareza</label>
+            
+            <label style={labelS}>Rareza del Coleccionable</label>
             <select style={inputS} value={selectedCromo.rareza || 'Común'} onChange={(e) => setSelectedCromo({ ...selectedCromo, rareza: e.target.value })}>
               <option value="Común">Común</option>
               <option value="Inusual">Inusual</option>
@@ -551,8 +1057,13 @@ const Cromos: React.FC = () => {
               <option value="Legendario">Legendario</option>
               <option value="Único">Único</option>
             </select>
-            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-              <button onClick={handleSaveInfo} style={btnSave}>Guardar</button>
+
+            {/* 💡 INYECCIÓN DINÁMICA DE LA FICHA TÉCNICA REQUERIDA */}
+            {renderFormularioPorCategoria()}
+
+            {/* BOTONES DE ACCIÓN */}
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px', borderTop: '1px solid #222', paddingTop: '15px' }}>
+              <button onClick={handleSaveInfo} style={btnSave}>Guardar Ficha</button>
               <button onClick={() => setIsModalOpen(false)} style={btnCancel}>Cancelar</button>
             </div>
           </div>
@@ -566,102 +1077,52 @@ const Cromos: React.FC = () => {
             <button onClick={() => setShowFullImage(null)} style={btnCloseAbsolute}>✕</button>
 
             <div style={detailImageSection}>
-              <img
-                src={`${STORAGE_URL}${showFullImage.url_imagen}?t=${new Date().getTime()}`}
-                style={detailImg}
-                alt="Full"
-              />
+              <img src={`${STORAGE_URL}${showFullImage.url_imagen}?t=${new Date().getTime()}`} style={detailImg} alt="Full" />
             </div>
 
             <div style={detailInfoSection}>
               <div style={{ marginBottom: '20px' }}>
-                <h2 style={{ margin: '0', color: '#fff', fontSize: '24px', fontWeight: 'bold' }}>
-                  {showFullImage.nombre_cromo || 'Sin Nombre'}
-                </h2>
+                <h2 style={{ margin: '0', color: '#fff', fontSize: '24px', fontWeight: 'bold' }}>{showFullImage.nombre_cromo || 'Sin Nombre'}</h2>
                 <p style={{ margin: '5px 0', color: '#eab308', fontWeight: 'bold', fontSize: '15px' }}>
                   {showFullImage.seleccion} — <span style={{ color: '#aaa', fontWeight: 'normal' }}>{showFullImage.rareza}</span>
                 </p>
               </div>
 
               <div style={techScrollArea}>
-                <h3 style={{ fontSize: '11px', color: '#eab308', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '15px', borderBottom: '1px solid #333', paddingBottom: '5px' }}>
-                  Especificaciones
-                </h3>
+                <h3 style={{ fontSize: '11px', color: '#eab308', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '15px', borderBottom: '1px solid #333', paddingBottom: '5px' }}>Especificaciones</h3>
                 {renderInfoTecnica(showFullImage.informacion_tecnica)}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '15px' }}>
-
-                {/* ── FILA 1: ANIMACIÓN + UPLOAD ── */}
+                {/* FILA 1: ANIMACIÓN */}
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
-                  <button
-                    disabled={!showFullImage.url_animacion}
-                    onClick={() => showFullImage.url_animacion && abrirEnModal(showFullImage.url_animacion, '✨ Animación')}
-                    style={btnMedia('linear-gradient(135deg, #7c3aed, #4c1d95)', !showFullImage.url_animacion)}
-                  >
-                    <span>✨</span>
-                    {uploadingAnim ? 'Subiendo...' : showFullImage.url_animacion ? 'Ver Animación' : 'Sin Animación'}
+                  <button disabled={!showFullImage.url_animacion} onClick={() => showFullImage.url_animacion && abrirEnModal(showFullImage.url_animacion, '✨ Animación')} style={btnMedia('linear-gradient(135deg, #7c3aed, #4c1d95)', !showFullImage.url_animacion)}>
+                    <span>✨</span>{uploadingAnim ? 'Subiendo...' : showFullImage.url_animacion ? 'Ver Animación' : 'Sin Animación'}
                   </button>
-
-                  {/* BOTÓN UPLOAD ANIMACIÓN */}
                   <label style={btnUpload} title="Subir MP4 de animación">
-                    {uploadingAnim ? (
-                      <span style={{ fontSize: '14px' }}>⏳</span>
-                    ) : (
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="17 8 12 3 7 8" />
-                        <line x1="12" y1="3" x2="12" y2="15" />
-                      </svg>
-                    )}
-                    <input
-                      type="file"
-                      hidden
-                      accept="video/mp4"
-                      disabled={uploadingAnim}
-                      onChange={handleUploadAnimacion}
-                    />
+                    {uploadingAnim ? <span style={{ fontSize: '14px' }}>⏳</span> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>}
+                    <input type="file" hidden accept="video/mp4" disabled={uploadingAnim} onChange={handleUploadAnimacion} />
                   </label>
                 </div>
 
-                {/* ── FILA 2: VIDEO RA + UPLOAD URL YOUTUBE ── */}
+                {/* FILA 2: VIDEO RA */}
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
-                  <button
-                    disabled={!showFullImage.url_video_ra}
-                    onClick={() => showFullImage.url_video_ra && abrirEnModal(showFullImage.url_video_ra, '▶ Video RA')}
-                    style={btnMedia('linear-gradient(135deg, #dc2626, #991b1b)', !showFullImage.url_video_ra)}
-                  >
-                    <span>▶</span>
-                    {showFullImage.url_video_ra ? 'Ver Video (YouTube)' : 'Sin Video'}
+                  <button disabled={!showFullImage.url_video_ra} onClick={() => showFullImage.url_video_ra && abrirEnModal(showFullImage.url_video_ra, '▶ Video RA')} style={btnMedia('linear-gradient(135deg, #dc2626, #991b1b)', !showFullImage.url_video_ra)}>
+                    <span>▶</span>{showFullImage.url_video_ra ? 'Ver Video (YouTube)' : 'Sin Video'}
                   </button>
-
-                  {/* BOTÓN INGRESAR URL YOUTUBE */}
-                  <button
-                    style={btnUpload}
-                    title="Ingresar URL de Video YouTube"
-                    onClick={() => {
-                      setYoutubeInput(showFullImage.url_video_ra || '');
-                      setShowYoutubeInput(true);
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="17 8 12 3 7 8" />
-                      <line x1="12" y1="3" x2="12" y2="15" />
-                    </svg>
-                  </button>
+                  <button style={btnUpload} title="Ingresar URL de Video YouTube" onClick={() => { setYoutubeInput(showFullImage.url_video_ra || ''); setShowYoutubeInput(true); }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg></button>
                 </div>
 
-                {/* ── FILA 3: MODELO 3D ── */}
-                <button
-                  disabled={!showFullImage.url_target_ra}
-                  onClick={() => showFullImage.url_target_ra && abrirEnModal(showFullImage.url_target_ra, '🎯 Modelo 3D RA')}
-                  style={btnMedia('linear-gradient(135deg, #0891b2, #164e63)', !showFullImage.url_target_ra)}
-                >
-                  <span>🎯</span>
-                  {showFullImage.url_target_ra ? 'Ver Modelo 3D' : 'Sin Modelo 3D'}
-                </button>
-
+                {/* FILA 3: MODELO 3D */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+                  <button disabled={!showFullImage.url_target_ra} onClick={() => showFullImage.url_target_ra && abrirEnModal(showFullImage.url_target_ra, '🎯 Modelo 3D RA')} style={btnMedia('linear-gradient(135deg, #0891b2, #164e63)', !showFullImage.url_target_ra)}>
+                    <span>🎯</span>{showFullImage.url_target_ra ? 'Ver Modelo 3D' : 'Sin Modelo 3D'}
+                  </button>
+                  <label style={btnUpload} title="Subir archivo .glb de Modelo 3D">
+                    {uploading3D ? <span style={{ fontSize: '14px' }}>⏳</span> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>}
+                    <input type="file" hidden accept=".glb" disabled={uploading3D} onChange={handleUploadModelo3D} />
+                  </label>
+                </div>
               </div>
 
               <button onClick={() => setShowFullImage(null)} style={btnCloseDetail}>Cerrar Vista</button>
@@ -670,92 +1131,34 @@ const Cromos: React.FC = () => {
         </div>
       )}
 
-      {/* ── MODAL INPUT URL YOUTUBE ── */}
+      {/* MODAL INPUT URL YOUTUBE */}
       {showYoutubeInput && (
         <div style={{ ...modalOverlay, zIndex: 6000 }} onClick={() => setShowYoutubeInput(false)}>
           <div style={{ background: '#1e293b', padding: '25px', borderRadius: '16px', border: '1px solid #334155', width: '90%', maxWidth: '420px' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ color: '#eab308', marginTop: 0, fontSize: '15px' }}>
-              🎬 URL de YouTube — Cromo #{showFullImage?.id}
-            </h3>
-            <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '12px' }}>
-              Pega la URL completa del video de YouTube
-            </p>
-            <input
-              type="text"
-              placeholder="https://www.youtube.com/watch?v=..."
-              value={youtubeInput}
-              onChange={e => setYoutubeInput(e.target.value)}
-              style={{
-                width: '100%', padding: '12px', background: '#0f172a',
-                border: '1px solid #475569', color: 'white',
-                borderRadius: '10px', fontSize: '13px',
-                boxSizing: 'border-box', marginBottom: '15px', outline: 'none'
-              }}
-              autoFocus
-            />
+            <h3 style={{ color: '#eab308', marginTop: 0, fontSize: '15px' }}>🎬 URL de YouTube — Cromo #{showFullImage?.id}</h3>
+            <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '12px' }}>Pega la URL completa del video de YouTube</p>
+            <input type="text" placeholder="https://www.youtube.com/watch?v=..." value={youtubeInput} onChange={e => setYoutubeInput(e.target.value)} style={{ width: '100%', padding: '12px', background: '#0f172a', border: '1px solid #475569', color: 'white', borderRadius: '10px', fontSize: '13px', boxSizing: 'border-box', marginBottom: '15px', outline: 'none' }} autoFocus />
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button
-                onClick={handleGuardarYoutube}
-                disabled={uploadingVideo || !youtubeInput.trim()}
-                style={{
-                  flex: 1, padding: '12px', background: '#dc2626',
-                  color: 'white', border: 'none', borderRadius: '10px',
-                  fontWeight: 'bold', cursor: uploadingVideo ? 'wait' : 'pointer',
-                  opacity: !youtubeInput.trim() ? 0.5 : 1
-                }}
-              >
-                {uploadingVideo ? '⏳ Guardando...' : '✅ Guardar URL'}
-              </button>
-              <button
-                onClick={() => { setShowYoutubeInput(false); setYoutubeInput(''); }}
-                style={{
-                  flex: 1, padding: '12px', background: 'transparent',
-                  color: '#94a3b8', border: '1px solid #334155',
-                  borderRadius: '10px', cursor: 'pointer'
-                }}
-              >
-                Cancelar
-              </button>
+              <button onClick={handleGuardarYoutube} disabled={uploadingVideo || !youtubeInput.trim()} style={{ flex: 1, padding: '12px', background: '#dc2626', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: uploadingVideo ? 'wait' : 'pointer', opacity: !youtubeInput.trim() ? 0.5 : 1 }}>{uploadingVideo ? '⏳ Guardando...' : '✅ Guardar URL'}</button>
+              <button onClick={() => { setShowYoutubeInput(false); setYoutubeInput(''); }} style={{ flex: 1, padding: '12px', background: 'transparent', color: '#94a3b8', border: '1px solid #334155', borderRadius: '10px', cursor: 'pointer' }}>Cancelar</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── MODAL IFRAME UNIVERSAL ── */}
+      {/* MODAL IFRAME UNIVERSAL */}
       {iframeModal && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.97)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 5000 }}
-          onClick={() => setIframeModal(null)}
-        >
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.97)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 5000 }} onClick={() => setIframeModal(null)}>
           <div style={{ position: 'relative', width: '95%', maxWidth: '900px' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
               <span style={{ color: '#eab308', fontWeight: 'bold', fontSize: '15px' }}>{iframeModal.titulo}</span>
-              <button onClick={() => setIframeModal(null)} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '8px 18px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
-                CERRAR ✕
-              </button>
+              <button onClick={() => setIframeModal(null)} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '8px 18px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>CERRAR ✕</button>
             </div>
             <div style={{ position: 'relative', paddingBottom: '75%', height: 0, borderRadius: '14px', overflow: 'hidden', background: '#000', border: '1px solid #222' }}>
               {iframeModal.is3D ? (
-                <model-viewer
-                  src={iframeModal.url}
-                  ar ar-modes="webxr scene-viewer quick-look"
-                  camera-controls shadow-intensity="1"
-                  auto-rotate crossorigin="anonymous" loading="eager"
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: '#111' }}
-                >
-                  <div slot="ar-button" style={{ background: '#eab308', borderRadius: '8px', padding: '10px', position: 'absolute', bottom: '20px', right: '20px', color: '#000', fontWeight: 'bold' }}>
-                    Ver en AR
-                  </div>
-                </model-viewer>
+                <model-viewer src={iframeModal.url} ar ar-modes="webxr scene-viewer quick-look" camera-controls shadow-intensity="1" auto-rotate crossorigin="anonymous" loading="eager" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: '#111' }}><div slot="ar-button" style={{ background: '#eab308', borderRadius: '8px', padding: '10px', position: 'absolute', bottom: '20px', right: '20px', color: '#000', fontWeight: 'bold' }}>Ver en AR</div></model-viewer>
               ) : (
-                <iframe
-                  key={iframeModal.url}
-                  src={iframeModal.url}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
-                  allow="autoplay; fullscreen; xr-spatial-tracking; ar; camera"
-                  allowFullScreen
-                  title={iframeModal.titulo}
-                />
+                <iframe key={iframeModal.url} src={iframeModal.url} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }} allow="autoplay; fullscreen; xr-spatial-tracking; ar; camera" allowFullScreen title={iframeModal.titulo} />
               )}
             </div>
           </div>
@@ -766,7 +1169,7 @@ const Cromos: React.FC = () => {
   );
 };
 
-// ── ESTILOS ──
+// ── ESTILOS NATIVOS AJUSTADOS CON CENTRADO ABSOLUTO DEFINITIVO ──
 const detailCard: React.CSSProperties = { display: 'flex', width: '95%', maxWidth: '900px', maxHeight: '85vh', background: '#0a0a0a', borderRadius: '24px', border: '1px solid #222', overflow: 'hidden', position: 'relative', boxShadow: '0 30px 60px -12px rgba(0,0,0,0.7)', flexDirection: 'row', flexWrap: 'nowrap' };
 const btnCloseAbsolute: React.CSSProperties = { position: 'absolute', top: '15px', right: '15px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: 'none', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, fontSize: '16px' };
 const detailImageSection: React.CSSProperties = { flex: '1.1', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', borderRight: '1px solid #1a1a1a' };
@@ -795,11 +1198,16 @@ const loaderOverlay: React.CSSProperties = { position: 'absolute', inset: 0, bac
 const paginationArea: React.CSSProperties = { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px', marginTop: '40px', paddingBottom: '40px' };
 const pageNavBtn: React.CSSProperties = { padding: '8px 16px', background: '#111', border: '1px solid #333', color: '#fff', borderRadius: '8px', cursor: 'pointer' };
 const pageNumberBtn = (active: boolean): React.CSSProperties => ({ minWidth: '35px', height: '35px', borderRadius: '8px', border: 'none', cursor: 'pointer', background: active ? '#eab308' : '#111', color: active ? '#000' : '#888', fontWeight: 'bold' });
+
+// 💡 SE CENTRAN LOS MODALES: Solución al typo justifycontent para alineación perfecta en viewport
 const modalOverlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000 };
-const modalContent: React.CSSProperties = { background: '#111', padding: '30px', borderRadius: '15px', width: '380px', border: '1px solid #333' };
-const inputS: React.CSSProperties = { width: '100%', padding: '12px', background: '#000', border: '1px solid #333', color: 'white', borderRadius: '8px', marginBottom: '15px' };
-const labelS: React.CSSProperties = { fontSize: '12px', color: '#666', display: 'block', marginBottom: '5px' };
-const btnSave: React.CSSProperties = { flex: 1, padding: '12px', background: '#eab308', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' };
-const btnCancel: React.CSSProperties = { flex: 1, padding: '12px', background: 'transparent', border: '1px solid #333', color: '#888', borderRadius: '8px', cursor: 'pointer' };
+
+// 💡 SE ADAPTA modalContent: Ancho ensanchado a 460px y scroll dinámico para asimilar las 7 fichas técnicas
+const modalContent: React.CSSProperties = { background: '#111', padding: '25px', borderRadius: '16px', width: '460px', maxHeight: '90vh', overflowY: 'auto', border: '1px solid #333' };
+
+const inputS: React.CSSProperties = { width: '100%', padding: '10px 12px', background: '#000', border: '1px solid #333', color: 'white', borderRadius: '8px', marginBottom: '12px', fontSize: '13px', outline: 'none' };
+const labelS: React.CSSProperties = { fontSize: '11px', color: '#888', display: 'block', marginBottom: '4px', fontWeight: '600' };
+const btnSave: React.CSSProperties = { flex: 1, padding: '12px', background: '#eab308', color: '#000', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s' };
+const btnCancel: React.CSSProperties = { flex: 1, padding: '12px', background: 'transparent', border: '1px solid #333', color: '#888', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s' };
 
 export default Cromos;

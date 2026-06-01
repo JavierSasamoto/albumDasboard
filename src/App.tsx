@@ -8,6 +8,9 @@ import Banco from './components/Banco';
 import Albunes from './components/Albunes';   
 import Monedas from './components/Monedas';  
 import Economico from './components/Economico'; 
+import Premios from './components/Premios';
+import Trivias from './components/Trivias';
+
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -90,8 +93,12 @@ export default function App() {
           {activeTab === 'control-albumes' && <Albunes/>}
           {activeTab === 'monedas' && <Monedas/>}
           {activeTab === 'control-economico' && <Economico/>}
+          {activeTab === 'premios' && <Premios/>}
+          {activeTab === 'trivias' && <Trivias/>}
+          
+          
           {/* Secciones en desarrollo con un diseño más atractivo */}
-          {!['dashboard', 'usuarios', 'gestion-cromos','transacciones','control-albumes','monedas','control-economico'].includes(activeTab) && (
+          {!['dashboard', 'usuarios', 'gestion-cromos','transacciones','control-albumes','monedas','control-economico','premios','trivias'].includes(activeTab) && (
             <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-800 rounded-2xl bg-gray-900/20">
               <div className="bg-gray-800 p-4 rounded-full mb-4">
                 <span className="text-4xl text-gray-600">🚧</span>
