@@ -1,8 +1,3 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-model-viewer {
-  width: 100%;
-  height: 100px; /* Asegúrate de que no sea 0 */
-  background-color: black;
-}
